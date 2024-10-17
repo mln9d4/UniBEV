@@ -7,16 +7,15 @@ _base_ = ['../unibev_nus_LC_cnw_256_modality_dropout.py']
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
-val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
+val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
 file_client_args = dict(backend='disk')
 bev_h_ = 200
 bev_w_ = 200
 dist_params = dict(backend='gloo')
 
-img_norm_cfg = dict(mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False)
 input_modality =  dict(
     use_lidar=True,
-    use_camera=True,
+    use_camera=False,
     use_radar=False,
     use_map=False,
     use_external=False)
@@ -26,10 +25,13 @@ class_names = [
     'motorcycle', 'pedestrian', 'traffic_cone', 'barrier'
 ]
 
+num_beam_to_drop = 24
+num_beam_sensor = 32
+
 model = dict(
-    use_lidar=input_modality['use_lidar'],
-    use_radar=input_modality['use_radar'],
-    use_camera=input_modality['use_camera'],
+    use_lidar=input_modality['use_lidar']
+    # use_radar=input_modality['use_radar'],
+    # use_camera=input_modality['use_camera'],
 )
 
 test_pipeline = [
@@ -37,31 +39,38 @@ test_pipeline = [
         type='LoadPointsFromFile',
         coord_type='LIDAR',
         load_dim=5,
-        use_dim=5,
+        use_dim=5
     ),
     dict(
-        type='LoadPointsFromMultiSweeps',
+        type='RemoveLiDARBeamsSpaced',
+        num_beam_to_drop=num_beam_to_drop,
+        num_beam_sensor=num_beam_sensor,
+        coord_type='LIDAR',
+        save_fig=False
+    ),
+    dict(
+        type='LoadPointsFromMultiSweepsReducedBeams',
         sweeps_num=10,
         use_dim=[0, 1, 2, 3, 4],
         file_client_args=file_client_args,
         pad_empty_sweeps=True,
-        remove_close=True
+        remove_close=True,
+        num_beam_to_drop=num_beam_to_drop,
+        num_beam_sensor=num_beam_sensor,
+        coord_type='LIDAR',
+        save_fig=False
     ),
-    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
-    dict(type='NormalizeMultiviewImage', **img_norm_cfg),
-    dict(type='PadMultiViewImage', size_divisor=32),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=img_scale,
         pts_scale_ratio=1,
         flip=False,
         transforms=[
-            dict(type='PadMultiViewImage', size_divisor=32),
             dict(
                 type='DefaultFormatBundle3D',
                 class_names=class_names,
                 with_label=False),
-            dict(type='CustomCollect3D', keys=['points', 'img'])
+            dict(type='CustomCollect3D', keys=['points'])
         ])
 ]
 
@@ -97,5 +106,4 @@ eval_pipeline = [
         with_label=False),
     dict(type='Collect3D', keys=['points'])
 ]
-
 evaluation = dict(pipeline=test_pipeline)

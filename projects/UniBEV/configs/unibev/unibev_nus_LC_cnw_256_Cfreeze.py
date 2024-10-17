@@ -10,17 +10,17 @@ max_epochs = 36
 save_interval = 6
 log_interval = 10
 fusion_method = 'linear'
-feature_norm = 'ChannelNormWeights'
+feature_norm = 'ChannelNormWeights' 
 modality_dropout_prob = 0.5
 
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
-train_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_train.pkl'
-val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
-work_dir = './outputs/train/unibev_cnw_dim_256_nus_LC_full'
+train_ann_file = sub_dir + 'nuscenes_infos_temporal_train.pkl'
+val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
+work_dir = './outputs/train/unibev_cnw_dim_256_nus_Cfreeze_full'
 
-load_from = 'remote_checkpoints/focos_3d_r101_centerpoint.pth'
+load_from = "/home/mingdayang/mmdetection3d/checkpoint/resnet101_centerpoint_pretrained.pth"
 
 resume_from = None
 plugin = True

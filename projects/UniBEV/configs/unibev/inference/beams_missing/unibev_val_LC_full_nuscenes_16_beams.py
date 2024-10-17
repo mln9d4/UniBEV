@@ -4,10 +4,17 @@
 
 _base_ = ['../unibev_nus_LC_cnw_256_modality_dropout.py']
 
+# outdir = 'outputs/inference/showcasing_worsened_prediction/beams_missing/mmdet_module_reduction/unibev_val_LC_full_cnw_256_nuscenes_L_8beams_C_Good'
+keys = ['fused_bev_embed', 'img_mlvl_feats', 'img_bev_embed', 'pts_mlvl_feats', 'pts_bev_embed', 'query', 'bev_queries', 'bev_pos', 'query_pos', 'reference_points']
+special_keys = []
+attrs = []
+
+
+
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
-val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
+val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
 file_client_args = dict(backend='disk')
 bev_h_ = 200
 bev_w_ = 200
@@ -26,10 +33,23 @@ class_names = [
     'motorcycle', 'pedestrian', 'traffic_cone', 'barrier'
 ]
 
+num_beam_to_drop = 16
+num_beam_sensor = 32
+
 model = dict(
     use_lidar=input_modality['use_lidar'],
-    use_radar=input_modality['use_radar'],
-    use_camera=input_modality['use_camera'],
+    # use_radar=input_modality['use_radar'],
+    use_camera=input_modality['use_camera']
+    # pts_bbox_head=dict(
+    #     transformer=dict(
+    #         vis_output=dict(
+    #             outdir= outdir,
+    #             keys=keys,
+    #             special_keys=special_keys,
+    #             attrs=attrs
+    #         )
+    #     )
+    # )
 )
 
 test_pipeline = [
@@ -37,16 +57,36 @@ test_pipeline = [
         type='LoadPointsFromFile',
         coord_type='LIDAR',
         load_dim=5,
-        use_dim=5,
+        use_dim=5
     ),
     dict(
-        type='LoadPointsFromMultiSweeps',
+        type='RemoveLiDARBeamsSpaced',
+        num_beam_to_drop=num_beam_to_drop,
+        num_beam_sensor=num_beam_sensor,
+        coord_type='LIDAR',
+        save_fig=False
+    ),
+    dict(
+        type='LoadPointsFromMultiSweepsReducedBeams',
         sweeps_num=10,
         use_dim=[0, 1, 2, 3, 4],
         file_client_args=file_client_args,
         pad_empty_sweeps=True,
-        remove_close=True
+        remove_close=True,
+        num_beam_to_drop=num_beam_to_drop,
+        num_beam_sensor=num_beam_sensor,
+        coord_type='LIDAR',
+        save_fig=False
     ),
+    # dict(
+    #     type='LoadPointsFromMultiSweeps',
+    #     sweeps_num=10,
+    #     use_dim=[0, 1, 2, 3, 4],
+    #     file_client_args=file_client_args,
+    #     pad_empty_sweeps=True,
+    #     remove_close=True
+    # ),
+
     dict(type='LoadMultiViewImageFromFiles', to_float32=True),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg),
     dict(type='PadMultiViewImage', size_divisor=32),
@@ -86,6 +126,12 @@ eval_pipeline = [
         load_dim=5,
         use_dim=5,
         file_client_args=file_client_args),
+    dict(
+        type='RemoveLiDARBeamsSpaced',
+        num_beam_to_drop=16,
+        num_beam_sensor=32,
+        coord_type='LIDAR',
+        save_fig=False),
     dict(
         type='LoadPointsFromMultiSweeps',
         sweeps_num=10,

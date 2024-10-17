@@ -7,7 +7,7 @@ _base_ = ['../unibev_nus_LC_cnw_256_modality_dropout.py']
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
-val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
+val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val_L_16beam_C_Good.pkl'
 file_client_args = dict(backend='disk')
 bev_h_ = 200
 bev_w_ = 200
@@ -37,7 +37,7 @@ test_pipeline = [
         type='LoadPointsFromFile',
         coord_type='LIDAR',
         load_dim=5,
-        use_dim=5,
+        use_dim=5
     ),
     dict(
         type='LoadPointsFromMultiSweeps',
