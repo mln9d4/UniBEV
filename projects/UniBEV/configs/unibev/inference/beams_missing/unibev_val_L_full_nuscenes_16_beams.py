@@ -2,7 +2,7 @@
 # inference with only LiDAR input
 # inference on complete NuScenes dataset
 
-_base_ = ['../unibev_nus_LC_cnw_256_modality_dropout.py']
+_base_ = ['../../unibev_nus_LC_cnw_256_modality_dropout.py']
 
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'

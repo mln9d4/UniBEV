@@ -2,7 +2,7 @@
 # inference with only LiDAR input
 # inference on complete NuScenes dataset
 
-_base_ = ['../unibev_nus_LC_cnw_256_modality_dropout.py']
+_base_ = ['../../unibev_nus_LC_cnw_256_modality_dropout.py']
 
 # outdir = 'outputs/inference/showcasing_worsened_prediction/beams_missing/mmdet_module_reduction/unibev_val_LC_full_cnw_256_nuscenes_L_8beams_C_Good'
 keys = ['fused_bev_embed', 'img_mlvl_feats', 'img_bev_embed', 'pts_mlvl_feats', 'pts_bev_embed', 'query', 'bev_queries', 'bev_pos', 'query_pos', 'reference_points']

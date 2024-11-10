@@ -330,6 +330,8 @@ class UniBEVTransformer(BaseModule):
                 img_norm_weights = channel_weights_norm[0]
                 pts_norm_weights = channel_weights_norm[1]
             else:
+                # This is modified ->
+                channel_weights_norm = self.feature_norm_layer(feature_weights)
                 img_norm_weights = self.feature_norm_layer(feature_weights[0:1])[0]
                 pts_norm_weights = self.feature_norm_layer(feature_weights[1:2])[0]
 
@@ -528,9 +530,13 @@ class UniBEVTransformer(BaseModule):
             pts_bev_embed = None
 
         if self.vis_output is not None:
+            # If you want to save only img or pts, just set None for respective variable. I know, shitty but
+            # I don't know how to do it automatically for now.
             vis_data = dict(
                 ori_img_bev_embed=img_bev_embed.clone(),
-                ori_pts_bev_embed=pts_bev_embed.clone(),
+                # ori_pts_bev_embed=pts_bev_embed.clone(),
+                ori_pts_bev_embed=None,
+                # ori_img_bev_embed=None,
             )
         img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
         img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)

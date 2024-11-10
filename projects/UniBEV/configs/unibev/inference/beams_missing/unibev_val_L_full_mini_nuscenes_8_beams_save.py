@@ -4,10 +4,15 @@
 
 _base_ = ['../../unibev_nus_LC_cnw_256_modality_dropout.py']
 
+outdir = 'outputs/inference/showcasing_worsened_prediction/beams_missing/mmdet_module_reduction/unibev_val_L_full_mini_nuscenes_8_beams'
+keys = ['pts_bev_embed', 'fused_bev_embed']
+special_keys = []
+attrs = []
+
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
-val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
+val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
 file_client_args = dict(backend='disk')
 bev_h_ = 200
 bev_w_ = 200
@@ -25,13 +30,23 @@ class_names = [
     'motorcycle', 'pedestrian', 'traffic_cone', 'barrier'
 ]
 
-num_beam_to_drop = 8
+num_beam_to_drop = 24
 num_beam_sensor = 32
 
 model = dict(
-    use_lidar=input_modality['use_lidar']
+    use_lidar=input_modality['use_lidar'],
     # use_radar=input_modality['use_radar'],
     # use_camera=input_modality['use_camera'],
+    pts_bbox_head=dict(
+        transformer=dict(
+            vis_output=dict(
+                outdir= outdir,
+                keys=keys,
+                special_keys=special_keys,
+                attrs=attrs
+            )
+        )
+    )
 )
 
 test_pipeline = [
