@@ -14,6 +14,7 @@ from mmcv.utils import TORCH_VERSION, digit_version
 from mmdet.core import (multi_apply, multi_apply, reduce_mean)
 from mmdet.models.utils.transformer import inverse_sigmoid
 from mmdet.models import HEADS
+from mmdet.models.builder import build_head
 from mmdet.models.dense_heads import DETRHead
 from mmdet3d.core.bbox.coders import build_bbox_coder
 from mmdet3d.unibev_plugin.core.bbox.util import normalize_bbox
@@ -38,8 +39,10 @@ class UniBEV_Head(DETRHead):
 
     def __init__(self,
                  *args,
+                 freeze_unibev=True,
                  with_box_refine=False,
                  as_two_stage=False,
+                 bev_consumer=None,    # config for bev consumer head for feature mapping function - Ming
                  transformer=None,
                  bbox_coder=None,
                  num_cls_fcs=2,
@@ -87,6 +90,20 @@ class UniBEV_Head(DETRHead):
             self.code_weights, requires_grad=False), requires_grad=False)
 
         # print(self.dual_queries)
+
+        # initialize bev consumer for feature mapping function
+        if bev_consumer is not None:
+            self.bev_consumer = build_head(bev_consumer)
+
+        if freeze_unibev:
+            for name, param in self.named_parameters():
+                if 'bev_consumer' not in name:
+                    param.requires_grad = False
+
+            for m in self.modules():
+                if isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d, nn.SyncBatchNorm)):
+                    m.eval()
+                    m.requires_grad_(False)
 
     def _init_layers(self):
         """Initialize classification branch and regression branch of head."""
@@ -197,7 +214,7 @@ class UniBEV_Head(DETRHead):
             # prev_bev=prev_bev
         )
 
-        bev_embed, hs, init_reference, inter_references = outputs
+        bev_embed, hs, init_reference, inter_references, ori_img_bev_embed, ori_pts_bev_embed = outputs
         hs = hs.permute(0, 2, 1, 3)
         outputs_classes = []
         outputs_coords = []
@@ -238,6 +255,16 @@ class UniBEV_Head(DETRHead):
             'enc_cls_scores': None,
             'enc_bbox_preds': None,
         }
+
+
+        # Create outputs for auxiliary network that trains the feature mapping function - Ming
+        if self.bev_consumer is not None:
+            bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
+            outs['bev_consumer_pred'] = bev_consumer_pred
+            outs['ori_pts_bev_embed'] = ori_pts_bev_embed
+            print(f"ori_img_bev_embed shape: {ori_img_bev_embed.shape}")
+            print(f"ori_pts_bev_embed shape: {ori_pts_bev_embed.shape}")
+        
 
         return outs
 
@@ -506,6 +533,14 @@ class UniBEV_Head(DETRHead):
             loss_dict[f'd{num_dec_layer}.loss_cls'] = loss_cls_i
             loss_dict[f'd{num_dec_layer}.loss_bbox'] = loss_bbox_i
             num_dec_layer += 1
+
+
+        # loss for auxiliary network that trains the feature mapping function
+        if self.bev_consumer is not None:
+            target = preds_dicts['ori_pts_bev_embed'].detach()  # Self-reconstruction
+            pred = preds_dicts['bev_consumer_pred']
+            loss_dict.update(self.bev_consumer.loss(pred, target))
+        
         return loss_dict
 
     @force_fp32(apply_to=('preds_dicts'))
