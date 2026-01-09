@@ -95,15 +95,16 @@ class UniBEV_Head(DETRHead):
         if bev_consumer is not None:
             self.bev_consumer = build_head(bev_consumer)
 
-        if freeze_unibev:
-            for name, param in self.named_parameters():
-                if 'bev_consumer' not in name:
-                    param.requires_grad = False
+        # if freeze_unibev:
+        #     for name, param in self.named_parameters():
+        #         # print(f"name: {name}, param: {param}")
+        #         if 'bev_consumer' not in name:
+        #             param.requires_grad = False
 
-            for m in self.modules():
-                if isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d, nn.SyncBatchNorm)):
-                    m.eval()
-                    m.requires_grad_(False)
+        #     for m in self.modules():
+        #         if isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d, nn.SyncBatchNorm)):
+        #             m.eval()
+        #             m.requires_grad_(False)
 
     def _init_layers(self):
         """Initialize classification branch and regression branch of head."""
@@ -262,8 +263,8 @@ class UniBEV_Head(DETRHead):
             bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
             outs['bev_consumer_pred'] = bev_consumer_pred
             outs['ori_pts_bev_embed'] = ori_pts_bev_embed
-            print(f"ori_img_bev_embed shape: {ori_img_bev_embed.shape}")
-            print(f"ori_pts_bev_embed shape: {ori_pts_bev_embed.shape}")
+            # print(f"ori_img_bev_embed shape: {ori_img_bev_embed.shape}")
+            # print(f"ori_pts_bev_embed shape: {ori_pts_bev_embed.shape}")
         
 
         return outs

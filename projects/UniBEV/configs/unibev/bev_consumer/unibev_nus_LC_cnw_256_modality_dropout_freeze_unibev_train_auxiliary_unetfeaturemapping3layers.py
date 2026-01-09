@@ -3,11 +3,12 @@
 # Encoder Dimension: 256
 # Decoder Dimension: 256
 
-eval_interval = 1  # Reduced to every 2 epochs to save memory
+eval_interval = 10000 # SET super high to stop calculating val/nuscenes metrics during training (we don't want any of it anyway)
+val_interval = 1
 samples_per_gpu = 1
 workers_per_gpu = 2  # Reduced to free memory
-max_epochs = 22
-save_interval = 1
+max_epochs = 1
+save_interval = 2
 log_interval = 1
 fusion_method = 'linear'
 feature_norm = 'ChannelNormWeights'
@@ -16,9 +17,9 @@ modality_dropout_prob = 0.5
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
-train_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_train.pkl'
+train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/one_sample_mini_nuscenes_infos_temporal_train.pkl'
 val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
-work_dir = './outputs/train/unibev_nus_LC_cnw_256_modality_dropout_freeze_unibev_train_auxiliary_unetfeaturemapping3layers'
+work_dir = './outputs/train/unibev_nus_LC_cnw_256_modality_dropout_freeze_unibev_train_auxiliary_unetfeaturemapping3layers_test'
 
 load_from = '/home/mingdayang/UniBEV/projects/UniBEV/checkpoints/unibev_cnw_256_nus_MD.pth'
 
@@ -162,10 +163,10 @@ data = dict(
         data_root=data_root,
         ann_file=data_root + val_ann_file,
         load_interval=1,
-        pipeline=test_pipeline,
+        pipeline=test_pipeline, # changed to train_pipeline from test_pipeline
         classes=class_names,
         modality=input_modality,
-        test_mode=True,
+        test_mode=True, # changed to false
         box_type_3d='LiDAR'),
     test=dict(
         type=dataset_type,
@@ -384,7 +385,8 @@ model = dict(
             iou_cost=dict(type='IoUCost', weight=0.0), # Fake cost. This is just to make it compatible with DETR head.
             pc_range=point_cloud_range))))
 
-evaluation = dict(interval=eval_interval, pipeline=test_pipeline)
+
+evaluation = dict(interval=eval_interval, pipeline=test_pipeline)  # Disabled - using val_step instead
 optimizer = dict(
     type='AdamW',
     lr=2e-4,
@@ -406,35 +408,45 @@ lr_config = dict(
 # runtime settings
 total_epochs = max_epochs
 
+
 checkpoint_config = dict(interval=save_interval)
 log_config = dict(
     interval=log_interval,
     hooks=[
         dict(type='TextLoggerHook'),
         # dict(type='TensorboardLoggerHook'),
-        dict(type='WandbLoggerHook',
-             init_kwargs=dict(
-                 project='unibev-auxiliary-training',
-                 name='unet_feature_mapping_3layers',
-                 config=dict(
-                     model='unet_feature_mapping_3layers',
-                     work_dir=work_dir,
-                     total_epochs=max_epochs,
-                     batch_size=samples_per_gpu,
-                     fusion_method=fusion_method,
-                     feature_norm=feature_norm,
-                     modality_dropout_prob=modality_dropout_prob,
-                     optimizer=optimizer,
-                     lr_config=lr_config,
-                 )
-             ))
+        dict(type='CustomWandbLoggerHook',
+            by_epoch=True,
+            with_step=True,
+            ignore_last=True,
+            interval=1,
+            log_artifact=True,
+            # out_suffix=('.log.json', '.log', '.py', 'pth', 'pt'),
+            # log_checkpoint=True, # Doens't work.
+            init_kwargs=dict(
+                project='testing_steps_plss',
+                notes='Training for full mininuscenes split',
+                allow_val_change=True,
+                save_code=True,
+                config=dict(
+                    model='unet_feature_mapping_3layers',
+                    work_dir=work_dir,
+                    total_epochs=max_epochs,
+                    batch_size=samples_per_gpu,
+                    fusion_method=fusion_method,
+                    feature_norm=feature_norm,
+                    modality_dropout_prob=modality_dropout_prob,
+                    optimizer=optimizer,
+                    lr_config=lr_config,
+                ),
+            ))
     ])
 # yapf:enable
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-custom_hooks = [
-    dict(type='CheckpointLateStageHook',
-         start=21,
-         priority=60)
-]
-workflow = [('train', 1), ('val', 1)]
+# custom_hooks = [
+#     dict(type='CheckpointLateStageHook',
+#          start=max_epochs - 1,
+#          priority=60),
+# ]
+workflow = [('train', 1), ('val', 1)]  

@@ -4,7 +4,7 @@
 # Decoder Dimension: 256
 # Ablation: m0s100l50c50
 
-eval_interval = 1
+eval_interval = 10000000
 samples_per_gpu = 1
 workers_per_gpu = 2
 max_epochs = 36

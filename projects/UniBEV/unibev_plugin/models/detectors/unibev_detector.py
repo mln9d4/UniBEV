@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from mmcv.runner import force_fp32, auto_fp16
 from mmdet.models import DETECTORS
 from torch.nn import functional as F
@@ -50,6 +51,8 @@ class UniBEV(MVXTwoStageDetector):
                  train_cfg=None,
                  test_cfg=None,
                  pretrained=None,
+
+                 freeze_unibev=True
                  ):
         super(UniBEV,
               self).__init__(pts_voxel_layer,
@@ -82,6 +85,18 @@ class UniBEV(MVXTwoStageDetector):
             self.radar_middle_encoder = builder.build_middle_encoder(radar_middle_encoder)
 
         self.fusion_method = pts_bbox_head['transformer'].get('fusion_method', None)
+
+
+        if freeze_unibev:
+            for name, param in self.named_parameters():
+                # print(f"name: {name}, param: {param}")
+                if 'bev_consumer' not in name:
+                    param.requires_grad = False
+
+            for m in self.modules():
+                if isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d, nn.SyncBatchNorm)):
+                    m.eval()
+                    m.requires_grad_(False)
 
     def extract_img_feat(self, img, img_metas=None):
         """Extract features of images."""
