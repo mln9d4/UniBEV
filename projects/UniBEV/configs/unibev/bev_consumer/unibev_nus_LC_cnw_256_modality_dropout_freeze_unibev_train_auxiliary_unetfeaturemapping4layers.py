@@ -34,7 +34,7 @@ load_from = '/home/mingdayang/UniBEV/projects/UniBEV/checkpoints/unibev_cnw_256_
 
 # n_blocks = 8
 
-resume_from = '/home/mingdayang/mmdetection3d/outputs/train/2401202601_FlexibleUNetSiLU[128, 256, 512, 1024]_mini_nuscenes_infos_temporal_train_mini_nuscenes_infos_temporal_val/latest.pth'
+resume_from = None
 plugin = True
 plugin_dir = 'mmdet3d/unibev_plugin/'
 

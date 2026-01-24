@@ -205,23 +205,6 @@ class UniBEV_Head(DETRHead):
         )
 
         bev_embed, hs, init_reference, inter_references, ori_img_bev_embed, ori_pts_bev_embed = outputs
-
-        # Create outputs for auxiliary network that trains the feature mapping function - Ming
-        if self.bev_consumer is not None:
-            bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
-            outs['bev_consumer_pred'] = bev_consumer_pred
-            outs['ori_pts_bev_embed'] = ori_pts_bev_embed
-
-            # Manual hijacking to see if pipeline works as intended and trains
-            # bev_consumer_pred = self.bev_consumer.forward(torch.zeros_like(ori_img_bev_embed))
-            # outs['bev_consumer_pred'] = bev_consumer_pred
-            # outs['ori_pts_bev_embed'] = torch.ones_like(ori_pts_bev_embed)
-            
-
-            # print(f"ori_img_bev_embed shape: {ori_img_bev_embed.shape}")
-            # print(f"ori_pts_bev_embed shape: {ori_pts_bev_embed.shape}")
-
-
         hs = hs.permute(0, 2, 1, 3)
         outputs_classes = []
         outputs_coords = []
@@ -262,6 +245,22 @@ class UniBEV_Head(DETRHead):
             'enc_cls_scores': None,
             'enc_bbox_preds': None,
         }
+
+
+        # Create outputs for auxiliary network that trains the feature mapping function - Ming
+        if self.bev_consumer is not None:
+            bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
+            outs['bev_consumer_pred'] = bev_consumer_pred
+            outs['ori_pts_bev_embed'] = ori_pts_bev_embed
+
+            # Manual hijacking to see if pipeline works as intended and trains
+            # bev_consumer_pred = self.bev_consumer.forward(torch.zeros_like(ori_img_bev_embed))
+            # outs['bev_consumer_pred'] = bev_consumer_pred
+            # outs['ori_pts_bev_embed'] = torch.ones_like(ori_pts_bev_embed)
+            
+
+            # print(f"ori_img_bev_embed shape: {ori_img_bev_embed.shape}")
+            # print(f"ori_pts_bev_embed shape: {ori_pts_bev_embed.shape}")
         
 
         return outs

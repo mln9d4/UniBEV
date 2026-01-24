@@ -628,7 +628,6 @@ class UniBEVTransformer_bevconsumer(BaseModule):
                  dual_queries = False,
                  vis_output = None,
                  cna_constant_init = None,
-                 bev_consumer = None,
                  **kwargs):
         super(UniBEVTransformer_bevconsumer, self).__init__(**kwargs)
 
@@ -673,8 +672,6 @@ class UniBEVTransformer_bevconsumer(BaseModule):
         if self.checkpoint_path is not None:
             print("=====> Loading PTS model from checkpoint for BEV consumer...")
             self.pts_model = self._build_pts_model(self.checkpoint_path)
-
-        self.bev_consumer = bev_consumer
 
     def _build_pts_model(self, checkpoint_path):
         """Build and load custom pts model from checkpoint.
@@ -1154,23 +1151,13 @@ class UniBEVTransformer_bevconsumer(BaseModule):
                 # ori_img_bev_embed=None,
             )
 
-        if self.bev_consumer is not None:
-            bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
-            
-
         if self.checkpoint_path is not None:
         # use our trained model to create pts_bev_embed before fusion and use that.
             print("=====> Using PTS model to generate pts_bev_embed for BEV consumer...")
             print("=====> overwriting previous pts_bev_embed")
             pts_bev_embed = self.pts_model(img_bev_embed)
-
-        if self.bev_consumer is not None:
-            img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, bev_consumer_pred)
-            img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, bev_consumer_pred)
-        else:
-            img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
-            img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)
-
+        img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
+        img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)
 
         fused_bev_embed = self.multi_modal_fusion(img_bev_embed, pts_bev_embed)
 
