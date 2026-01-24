@@ -1,4 +1,5 @@
 from .transformer_fusion import UniBEVTransformer
+from .transformer_fusion import UniBEVTransformer_bevconsumer
 
 from .spatial_cross_attention_pts import SpatialCrossAttentionPts, MSDeformableAttention3DPts
 from .spatial_cross_attention_img import SpatialCrossAttentionImg, MSDeformableAttention3DImg

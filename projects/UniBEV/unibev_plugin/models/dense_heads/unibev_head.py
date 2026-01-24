@@ -39,7 +39,6 @@ class UniBEV_Head(DETRHead):
 
     def __init__(self,
                  *args,
-                 freeze_unibev=True,
                  with_box_refine=False,
                  as_two_stage=False,
                  bev_consumer=None,    # config for bev consumer head for feature mapping function - Ming
@@ -54,6 +53,7 @@ class UniBEV_Head(DETRHead):
         self.bev_h = bev_h
         self.bev_w = bev_w
         self.fp16_enabled = False
+        self.bev_consumer = bev_consumer
 
         self.with_box_refine = with_box_refine
         self.as_two_stage = as_two_stage
@@ -89,22 +89,11 @@ class UniBEV_Head(DETRHead):
         self.code_weights = nn.Parameter(torch.tensor(
             self.code_weights, requires_grad=False), requires_grad=False)
 
-        # print(self.dual_queries)
 
         # initialize bev consumer for feature mapping function
-        if bev_consumer is not None:
+        if self.bev_consumer is not None:
             self.bev_consumer = build_head(bev_consumer)
 
-        # if freeze_unibev:
-        #     for name, param in self.named_parameters():
-        #         # print(f"name: {name}, param: {param}")
-        #         if 'bev_consumer' not in name:
-        #             param.requires_grad = False
-
-        #     for m in self.modules():
-        #         if isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d, nn.SyncBatchNorm)):
-        #             m.eval()
-        #             m.requires_grad_(False)
 
     def _init_layers(self):
         """Initialize classification branch and regression branch of head."""
@@ -216,6 +205,23 @@ class UniBEV_Head(DETRHead):
         )
 
         bev_embed, hs, init_reference, inter_references, ori_img_bev_embed, ori_pts_bev_embed = outputs
+
+        # Create outputs for auxiliary network that trains the feature mapping function - Ming
+        if self.bev_consumer is not None:
+            bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
+            outs['bev_consumer_pred'] = bev_consumer_pred
+            outs['ori_pts_bev_embed'] = ori_pts_bev_embed
+
+            # Manual hijacking to see if pipeline works as intended and trains
+            # bev_consumer_pred = self.bev_consumer.forward(torch.zeros_like(ori_img_bev_embed))
+            # outs['bev_consumer_pred'] = bev_consumer_pred
+            # outs['ori_pts_bev_embed'] = torch.ones_like(ori_pts_bev_embed)
+            
+
+            # print(f"ori_img_bev_embed shape: {ori_img_bev_embed.shape}")
+            # print(f"ori_pts_bev_embed shape: {ori_pts_bev_embed.shape}")
+
+
         hs = hs.permute(0, 2, 1, 3)
         outputs_classes = []
         outputs_coords = []
@@ -256,15 +262,6 @@ class UniBEV_Head(DETRHead):
             'enc_cls_scores': None,
             'enc_bbox_preds': None,
         }
-
-
-        # Create outputs for auxiliary network that trains the feature mapping function - Ming
-        if self.bev_consumer is not None:
-            bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
-            outs['bev_consumer_pred'] = bev_consumer_pred
-            outs['ori_pts_bev_embed'] = ori_pts_bev_embed
-            # print(f"ori_img_bev_embed shape: {ori_img_bev_embed.shape}")
-            # print(f"ori_pts_bev_embed shape: {ori_pts_bev_embed.shape}")
         
 
         return outs

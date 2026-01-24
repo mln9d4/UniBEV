@@ -2,13 +2,19 @@
 # inference with only LiDAR input
 # inference on complete NuScenes dataset
 
+#_base_ = ['../uniquery_detr_fusion_voxel_net_nus_LC_full_linear_channel_norm_attn_256_pip4_layer_3_modality_dropout.py']
 _base_ = ['../unibev_nus_LC_cnw_256_modality_dropout.py']
 
+outdir = 'outputs/inference/baseline/unibev_val_LC_full_cnw_256_one_sample_mininuscenes'
+keys = ['fused_bev_embed', 'img_mlvl_feats', 'img_bev_embed', 'pts_mlvl_feats', 'pts_bev_embed', 'query', 'bev_queries', 'bev_pos', 'query_pos', 'reference_points']
+special_keys = []
+attrs = []
+
+# hostname = 'hpc'
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
-val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
-outdir = 'outputs/inference/baseline/unibev_val_LC_full_nuscenes'
+val_ann_file = sub_dir + 'nuscenes_annotation_files_custom/one_sample_mini_nuscenes_infos_temporal_train.pkl'
 file_client_args = dict(backend='disk')
 bev_h_ = 200
 bev_w_ = 200
@@ -26,13 +32,21 @@ class_names = [
     'car', 'truck', 'trailer', 'bus', 'construction_vehicle', 'bicycle',
     'motorcycle', 'pedestrian', 'traffic_cone', 'barrier'
 ]
-
 model = dict(
     use_lidar=input_modality['use_lidar'],
-    use_radar=input_modality['use_radar'],
+    # use_radar=input_modality['use_radar'],
     use_camera=input_modality['use_camera'],
+    pts_bbox_head=dict(
+        transformer=dict(
+            vis_output=dict(
+                outdir= outdir,
+                keys=keys,
+                special_keys=special_keys,
+                attrs=attrs
+            )
+        )
+    )
 )
-
 test_pipeline = [
     dict(
         type='LoadPointsFromFile',
@@ -50,7 +64,6 @@ test_pipeline = [
     ),
     dict(type='LoadMultiViewImageFromFiles', to_float32=True),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg),
-    dict(type='PadMultiViewImage', size_divisor=32),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=img_scale,
@@ -98,5 +111,4 @@ eval_pipeline = [
         with_label=False),
     dict(type='Collect3D', keys=['points'])
 ]
-
 evaluation = dict(pipeline=test_pipeline)

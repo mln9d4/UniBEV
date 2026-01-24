@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from mmcv.cnn import xavier_init
 from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
 from mmcv.runner.base_module import BaseModule
-
+from mmdet.models import HEADS
 from mmdet.models.utils.builder import TRANSFORMER
 from torch.nn.init import normal_, constant_
 
@@ -116,7 +116,7 @@ class UniBEVTransformer(BaseModule):
         self.two_stage_num_proposals = two_stage_num_proposals
         self.vis_output = vis_output
         self.init_layers()
-    
+
     @property
     def with_img_bev_encoder(self):
         """bool: Whether the img_bev_encoder exists."""
@@ -594,9 +594,10 @@ class UniBEVTransformer(BaseModule):
         inter_references_out = inter_references
 
         return fused_bev_embed, inter_states, init_reference_out, inter_references_out, ori_img_bev_embed, ori_pts_bev_embed
+    
 
 @TRANSFORMER.register_module()
-class UniBEVTransformerFeatureMaps(BaseModule):
+class UniBEVTransformer_bevconsumer(BaseModule):
     """Implements the UniBEV transformer, based on Detr3D transformer.
     Args:
         as_two_stage (bool): Generate query from encoder features.
@@ -608,6 +609,7 @@ class UniBEVTransformerFeatureMaps(BaseModule):
     """
 
     def __init__(self,
+                 checkpoint_path=None,
                  num_feature_levels=4,
                  num_cams=6,
                  two_stage_num_proposals=300,
@@ -626,8 +628,9 @@ class UniBEVTransformerFeatureMaps(BaseModule):
                  dual_queries = False,
                  vis_output = None,
                  cna_constant_init = None,
+                 bev_consumer = None,
                  **kwargs):
-        super(UniBEVTransformer, self).__init__(**kwargs)
+        super(UniBEVTransformer_bevconsumer, self).__init__(**kwargs)
 
         if img_encoder is not None:
             self.img_bev_encoder = build_transformer_layer_sequence(img_encoder)
@@ -666,6 +669,65 @@ class UniBEVTransformerFeatureMaps(BaseModule):
         self.vis_output = vis_output
         self.init_layers()
     
+        self.checkpoint_path = checkpoint_path
+        if self.checkpoint_path is not None:
+            print("=====> Loading PTS model from checkpoint for BEV consumer...")
+            self.pts_model = self._build_pts_model(self.checkpoint_path)
+
+        self.bev_consumer = bev_consumer
+
+    def _build_pts_model(self, checkpoint_path):
+        """Build and load custom pts model from checkpoint.
+        
+        Args:
+            checkpoint_path (str): Path to the checkpoint file
+            
+        Returns:
+            nn.Module: Loaded model registered with mmdet3d
+        """
+        print(f"Loading pts model from: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        
+        model_type = checkpoint.get('model_type')
+        if model_type is None:
+            raise ValueError(f"Checkpoint {checkpoint_path} missing 'model_type'")
+        
+        # Get the model class from registry
+        ModelClass = HEADS.get(model_type)
+        if ModelClass is None:
+            raise ValueError(f"Model type '{model_type}' not found in HEADS registry")
+        
+        # checkpoint['model_config']['loss_config'] = None
+
+        # Get config from checkpoint
+        config = checkpoint.get('model_config', {})
+        # config['loss_config'] = None
+        # config.pop('reduction', None)
+        # Ensure channel_sizes is a list (handle string case)
+        if 'channel_sizes' in config and isinstance(config['channel_sizes'], str):
+            import ast
+            try:
+                config['channel_sizes'] = ast.literal_eval(config['channel_sizes'])
+            except (ValueError, SyntaxError):
+                pass
+        
+        print(f"✓ Model type: {model_type}")
+        print(f"✓ Model config: {config}")
+        
+        # Instantiate model
+        model = ModelClass(**config)
+        
+        # Load state dict
+        state_dict = checkpoint.get('state_dict', {})
+        model.load_state_dict(state_dict)
+        
+        # Keep in train mode so it behaves the same as during training
+        # (dropout, batch norm will adjust based on model.train()/model.eval() calls)
+        model.eval()
+        print(f"✓ Pts model loaded successfully with {len(state_dict)} parameters")
+        
+        return model
+
     @property
     def with_img_bev_encoder(self):
         """bool: Whether the img_bev_encoder exists."""
@@ -1091,8 +1153,24 @@ class UniBEVTransformerFeatureMaps(BaseModule):
                 # ori_pts_bev_embed=None,
                 # ori_img_bev_embed=None,
             )
-        img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
-        img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)
+
+        if self.bev_consumer is not None:
+            bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
+            
+
+        if self.checkpoint_path is not None:
+        # use our trained model to create pts_bev_embed before fusion and use that.
+            print("=====> Using PTS model to generate pts_bev_embed for BEV consumer...")
+            print("=====> overwriting previous pts_bev_embed")
+            pts_bev_embed = self.pts_model(img_bev_embed)
+
+        if self.bev_consumer is not None:
+            img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, bev_consumer_pred)
+            img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, bev_consumer_pred)
+        else:
+            img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
+            img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)
+
 
         fused_bev_embed = self.multi_modal_fusion(img_bev_embed, pts_bev_embed)
 
@@ -1143,3 +1221,4 @@ class UniBEVTransformerFeatureMaps(BaseModule):
         inter_references_out = inter_references
 
         return fused_bev_embed, inter_states, init_reference_out, inter_references_out, ori_img_bev_embed, ori_pts_bev_embed
+    

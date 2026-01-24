@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from mmcv.runner import force_fp32, auto_fp16
-from mmdet.models import DETECTORS
+from mmdet.models import DETECTORS, HEADS
 from torch.nn import functional as F
 from mmdet3d.core import bbox3d2result
 from mmdet3d.models import builder
@@ -16,21 +16,19 @@ import mmdet3d
 
 
 @DETECTORS.register_module()
-class UniBEV(MVXTwoStageDetector):
+class bev_consumer_UniBEV(MVXTwoStageDetector):
     """
-    UniBEV model:
-        a multi-modal fusion model based on BEVFormer_Deformable(cam) and BEVVoxelDetr (lidar).
-        using unified bev query to build BEV embedding from image features and point features
-        todo
-        # temporal information is not applied.
-        # video_test_mode (bool): Decide whether to use temporal information during inference.
+    UniBEV model with custom point feature generator.
+    
     Args:
+        pts_model_checkpoint (str): Path to checkpoint for custom pts model
     """
 
     def __init__(self,
-                 use_lidar = True,
-                 use_camera = True,
-                 use_radar = False,
+                 use_lidar=True,
+                 use_camera=True,
+                 use_radar=False,
+                 pts_model_checkpoint=None,  # NEW: checkpoint path only
 
                  use_grid_mask=False,
                  pts_voxel_layer=None,
@@ -52,26 +50,32 @@ class UniBEV(MVXTwoStageDetector):
                  test_cfg=None,
                  pretrained=None,
 
-                 freeze_unibev=False
+                 freeze_unibev=True
                  ):
-        super(UniBEV,
-              self).__init__(pts_voxel_layer,
-                             pts_voxel_encoder,
-                             pts_middle_encoder,
-                             pts_fusion_layer,
-                             img_backbone,
-                             pts_backbone,
-                             img_neck,
-                             pts_neck,
-                             pts_bbox_head,
-                             img_roi_head,
-                             img_rpn_head,
-                             train_cfg,
-                             test_cfg,
-                             pretrained)
+        super(bev_consumer_UniBEV, self).__init__(
+            pts_voxel_layer,
+            pts_voxel_encoder,
+            pts_middle_encoder,
+            pts_fusion_layer,
+            img_backbone,
+            pts_backbone,
+            img_neck,
+            pts_neck,
+            pts_bbox_head,
+            img_roi_head,
+            img_rpn_head,
+            train_cfg,
+            test_cfg,
+            pretrained)
+        
         self.use_lidar = use_lidar
         self.use_camera = use_camera
         self.use_radar = use_radar
+
+        # Load custom pts model from checkpoint
+        self.pts_model = None
+        if pts_model_checkpoint is not None:
+            self.pts_model = self._build_pts_model(pts_model_checkpoint)
 
         self.use_grid_mask = use_grid_mask
         if self.use_grid_mask:
@@ -86,23 +90,69 @@ class UniBEV(MVXTwoStageDetector):
 
         self.fusion_method = pts_bbox_head['transformer'].get('fusion_method', None)
 
-
         if freeze_unibev:
             for name, param in self.named_parameters():
-                # print(f"name: {name}, param: {param}")
-                if 'bev_consumer' not in name:
+                # Don't freeze the pts_model
+                if 'pts_model' not in name:
                     param.requires_grad = False
 
             for m in self.modules():
                 if isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d, nn.SyncBatchNorm)):
-                    m.eval()
-                    m.requires_grad_(False)
+                    if not any('pts_model' in name for name, _ in self.named_modules()):
+                        m.eval()
+                        m.requires_grad_(False)
 
-            print("<<========== Params which are NOT frozen ==========>>")
-            for name, param in self.named_parameters():
-                if param.requires_grad == True:
-                    print(f"Parameter {name} is trainable")
+    def _build_pts_model(self, checkpoint_path):
+        """Build and load custom pts model from checkpoint.
+        
+        Args:
+            checkpoint_path (str): Path to the checkpoint file
+            
+        Returns:
+            nn.Module: Loaded model registered with mmdet3d
+        """
+        print(f"Loading pts model from: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        
+        model_type = checkpoint.get('model_type')
+        if model_type is None:
+            raise ValueError(f"Checkpoint {checkpoint_path} missing 'model_type'")
+        
+        # Get the model class from registry
+        ModelClass = HEADS.get(model_type)
+        if ModelClass is None:
+            raise ValueError(f"Model type '{model_type}' not found in HEADS registry")
+        
+        checkpoint['model_config']['loss_config'] = None
 
+        # Get config from checkpoint
+        config = checkpoint.get('model_config', {})
+        config['loss_config'] = None
+        config.pop('reduction', None)
+        # Ensure channel_sizes is a list (handle string case)
+        if 'channel_sizes' in config and isinstance(config['channel_sizes'], str):
+            import ast
+            try:
+                config['channel_sizes'] = ast.literal_eval(config['channel_sizes'])
+            except (ValueError, SyntaxError):
+                pass
+        
+        print(f"✓ Model type: {model_type}")
+        print(f"✓ Model config: {config}")
+        
+        # Instantiate model
+        model = ModelClass(**config)
+        
+        # Load state dict
+        state_dict = checkpoint.get('state_dict', {})
+        model.load_state_dict(state_dict)
+        
+        # Keep in train mode so it behaves the same as during training
+        # (dropout, batch norm will adjust based on model.train()/model.eval() calls)
+        
+        print(f"✓ Pts model loaded successfully with {len(state_dict)} parameters")
+        
+        return model
 
     def extract_img_feat(self, img, img_metas=None):
         """Extract features of images."""
@@ -241,7 +291,6 @@ class UniBEV(MVXTwoStageDetector):
         else:
             return self.forward_test(**kwargs)
 
-
     def forward_train(self,
                       points=None,
                       img_metas=None,
@@ -281,21 +330,12 @@ class UniBEV(MVXTwoStageDetector):
         """
         if self.use_camera:
             assert img is not None
-        if self.use_lidar:
+        if self.use_lidar and self.pts_model is None:
             assert points is not None
         if self.use_radar:
             assert radar is not None
-        # print(img.shape)
-        # print(len(img_metas))
-        # print(img_metas[0].keys())
-        # if img is not None:
-        #     len_queue = img.size(1)
-        #     img = img[:, -1, ...]
-        # else:
-        #     len_queue = 3
-        #     img = None
-        # img_metas = [each[len_queue - 1] for each in img_metas]
-        img_feats, lidar_feats, radar_feats = self.extract_feat(img=img, points=points, radar_points= radar, img_metas=img_metas)
+
+        img_feats, lidar_feats, radar_feats = self.extract_feat(img=img, points=points, radar_points=radar, img_metas=img_metas)
 
         losses = dict()
         if self.use_lidar == True and self.use_radar == False:
@@ -321,12 +361,6 @@ class UniBEV(MVXTwoStageDetector):
                 raise TypeError('{} must be a list, but got {}'.format(
                     name, type(var)))
 
-        # num_augs = len(points)
-        # if num_augs != len(img_metas):
-        #     raise ValueError(
-        #         'num of augmentations ({}) != num of image meta ({})'.format(
-        #             len(points), len(img_metas)))
-
         img = [img] if img is None else img
         points = [points] if points is None else points
         radar = [radar] if radar is None else radar
@@ -335,7 +369,7 @@ class UniBEV(MVXTwoStageDetector):
             points[0], img_metas[0], img[0], radar[0], **kwargs)
         return bbox_results
 
-    def simple_test(self, points, img_metas, img=None, radar = None, rescale=False):
+    def simple_test(self, points, img_metas, img=None, radar=None, rescale=False):
         """Test function without augmentaiton."""
         img_feats, lidar_feats, radar_feats = self.extract_feat(img=img, points=points, radar_points=radar, img_metas=img_metas)
 

@@ -3,12 +3,12 @@
 # Encoder Dimension: 256
 # Decoder Dimension: 256
 
-eval_interval = 10000 # SET super high to stop calculating val/nuscenes metrics during training (we don't want any of it anyway)
+eval_interval = 1 # SET super high to stop calculating val/nuscenes metrics during training (we don't want any of it anyway)
 val_interval = 1
-samples_per_gpu = 5
+samples_per_gpu = 4
 workers_per_gpu = 4  # Reduced to free memory
-max_epochs = 30
-save_interval = 2
+max_epochs = 10
+save_interval = 1
 log_interval = 1
 fusion_method = 'linear'
 feature_norm = 'ChannelNormWeights'
@@ -18,23 +18,13 @@ dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
 train_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_train.pkl'
-val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
-
-# train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/sampled_quarter_nuscenes_infos_temporal_train.pkl'
-# val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
-
-# train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/one_sample_mini_nuscenes_infos_temporal_train.pkl'
-# val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
-feature_mapping_model = 'FlexibleUNetSiLU'
-channel_sizes = [128, 256, 512, 1024]
-work_dir = f'./outputs/train/2401202601_{feature_mapping_model}{channel_sizes}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}'
+val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
+# outdir = './outputs/inference/unibev_nus_LC_cnw_256_modality_dropout_freeze_unibev_train_auxiliary_unetfeaturemapping4layers_quarter_nuscenes'
 
 load_from = '/home/mingdayang/UniBEV/projects/UniBEV/checkpoints/unibev_cnw_256_nus_MD.pth'
-
-
-# n_blocks = 8
-
-resume_from = '/home/mingdayang/mmdetection3d/outputs/train/2401202601_FlexibleUNetSiLU[128, 256, 512, 1024]_mini_nuscenes_infos_temporal_train_mini_nuscenes_infos_temporal_val/latest.pth'
+# featuremapping_checkpoint = '/home/mingdayang/mmdetection3d/outputs/train/2301202605_FlexibleUNetSiLU_sampled_quarter_nuscenes_infos_temporal_train_nuscenes_infos_temporal_val/model_only.pth'
+featuremapping_checkpoint = None
+resume_from = None
 plugin = True
 plugin_dir = 'mmdet3d/unibev_plugin/'
 
@@ -77,33 +67,6 @@ runner = dict(type='EpochBasedRunner',
               max_epochs=max_epochs)
 
 
-train_pipeline = [
-    dict(
-        type='LoadPointsFromFile',
-        coord_type='LIDAR',
-        load_dim=5,
-        use_dim=5),
-    dict(
-        type='LoadPointsFromMultiSweeps',
-        sweeps_num=5,  # Reduced from 10 to save memory
-        use_dim=[0, 1, 2, 3, 4],
-        file_client_args=file_client_args,
-        pad_empty_sweeps=True,
-        remove_close=True
-    ),
-    dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
-
-    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
-    dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
-    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
-    dict(type='ObjectNameFilter', classes=class_names),
-    dict(type='PointShuffle'),
-    dict(type='NormalizeMultiviewImage', **img_norm_cfg),
-    dict(type='PadMultiViewImage', size_divisor=32),
-    dict(type='DefaultFormatBundle3D', class_names=class_names), ## which DefaultFormat
-    dict(type='CustomCollect3D', keys=['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d']) ## which data collection
-    # dict(type='CustomCollect3D', keys=['points', 'img']) ## which data collection
-]
 test_pipeline = [
     dict(
         type='LoadPointsFromFile',
@@ -159,17 +122,6 @@ eval_pipeline = [
 data = dict(
     samples_per_gpu=samples_per_gpu,
     workers_per_gpu=workers_per_gpu,
-    train=dict(
-            type=dataset_type,
-            data_root=data_root,
-            ann_file=data_root + train_ann_file,
-            load_interval=1,
-            pipeline=train_pipeline,
-            classes=class_names,
-            modality=input_modality,
-            test_mode=False,
-            use_valid_flag=True,
-            box_type_3d='LiDAR'),
     val=dict(
         type=dataset_type,
         data_root=data_root,
@@ -195,7 +147,7 @@ data = dict(
 
 model = dict(
     type='UniBEV',
-    freeze_unibev=True,
+    freeze_unibev=False,
     use_grid_mask=True,
     pts_voxel_layer=dict(
         max_num_points=10,
@@ -258,6 +210,7 @@ model = dict(
         relu_before_extra_convs=True),
     pts_bbox_head=dict(
         type='UniBEV_Head',
+        bev_consumer=None,
         bev_h=bev_h_,
         bev_w=bev_w_,
         num_query=900,
@@ -267,7 +220,8 @@ model = dict(
         with_box_refine=True,
         as_two_stage=False,
         transformer=dict(
-            type='UniBEVTransformer',
+            type='UniBEVTransformer_bevconsumer',
+            checkpoint_path=featuremapping_checkpoint,
             embed_dims=_dim_,
             fusion_method=fusion_method,
             drop_modality=modality_dropout_prob,
@@ -361,14 +315,6 @@ model = dict(
                     ffn_dropout=0.1,
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm')))),
-        bev_consumer=dict(
-            type=feature_mapping_model,
-            input_channels=_dim_,
-            output_channels=_dim_,
-            bev_h=bev_h_,
-            bev_w=bev_w_,
-            channel_sizes=channel_sizes
-        ),
         bbox_coder=dict(
             type='NMSFreeCoder',
             post_center_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
@@ -399,75 +345,9 @@ model = dict(
             pc_range=point_cloud_range))))
 
 
-evaluation = dict(interval=eval_interval, pipeline=test_pipeline)  # Disabled - using val_step instead
-optimizer = dict(
-    type='AdamW',
-    lr=1e-4,
-    paramwise_cfg=dict(
-        custom_keys={
-            'img_backbone': dict(lr_mult=0.1),
-            'pts_backbone': dict(lr_mult=0.1),
-        }),
-    weight_decay=1e-4)
-# max_norm=10 is better for SECOND
-optimizer_config = dict(grad_clip=dict(max_norm=5, norm_type=2))
+evaluation = dict(pipeline=test_pipeline)  # Disabled - using val_step instead
 
-lr_config = dict(policy='fixed')
-lr_config = dict(
-    policy='CosineAnnealing',
-    warmup='linear',
-    warmup_iters=100,
-    warmup_ratio=1e-3,
-    min_lr_ratio=0.1
-)
-
-
-# runtime settings
-total_epochs = max_epochs
-
-checkpoint_config = dict(interval=save_interval)
-log_config = dict(
-    interval=log_interval,
-    hooks=[
-        dict(type='TextLoggerHook'),
-        # dict(type='TensorboardLoggerHook'),
-        dict(type='CustomWandbLoggerHook',
-            by_epoch=True,
-            with_step=True,
-            ignore_last=True,
-            interval=1,
-            log_artifact=True,
-            # out_suffix=('.log.json', '.log', '.py', 'pth', 'pt'),
-            # log_checkpoint=True, # Doens't work.
-            init_kwargs=dict(
-                project='Feature Mapping UniBEV',
-                name=f'{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_epochs{max_epochs}_samplespergpu{samples_per_gpu}',
-                notes='',
-                allow_val_change=True,
-                save_code=True,
-                config=dict(
-                    model=feature_mapping_model,
-                    work_dir=work_dir,
-                    total_epochs=max_epochs,
-                    samples_per_gpu=samples_per_gpu,
-                    workers_per_gpu=workers_per_gpu,
-                    fusion_method=fusion_method,
-                    feature_norm=feature_norm,
-                    modality_dropout_prob=modality_dropout_prob,
-                    optimizer=optimizer,
-                    lr_config=lr_config,
-                    training_ann_file=train_ann_file,
-                    validation_ann_file=val_ann_file
-                ),
-            ))
-    ])
-# yapf:enable
 dist_params = dict(backend='nccl')
-log_level = 'INFO'
-# custom_hooks = [
-#     dict(type='CheckpointLateStageHook',
-#          start=max_epochs - 5,
-#          priority=60),
-# ]
-workflow = [('train', 1), ('val', 1)]
-# workflow = [('train', 1)]  
+
+
+
