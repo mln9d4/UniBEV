@@ -6,8 +6,8 @@ _base_ = ['../unibev_nus_LC_cnw_256_modality_dropout.py']
 
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
-sub_dir = 'mmdet3d_old_cor/'
-val_ann_file = sub_dir + 'nuscenes_infos_val.pkl'
+sub_dir = 'mmdet3d_bevformer/'
+val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
 file_client_args = dict(backend='disk')
 bev_h_ = 200
 bev_w_ = 200

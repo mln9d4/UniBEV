@@ -533,6 +533,8 @@ class UniBEVTransformer(BaseModule):
         ori_img_bev_embed = img_bev_embed.clone() if img_bev_embed is not None else None
         ori_pts_bev_embed = pts_bev_embed.clone() if pts_bev_embed is not None else None
 
+        # torch.save(ori_img_bev_embed, '/home/mingdayang/mmdetection3d/debug_dump/ori_img_bev_embed_after_copy.pt')
+
         if self.vis_output is not None:
             # If you want to save only img or pts, just set None for respective variable. I know, shitty but
             # I don't know how to do it automatically for now.

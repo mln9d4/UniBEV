@@ -85,9 +85,9 @@ class UniBEV(MVXTwoStageDetector):
             self.radar_middle_encoder = builder.build_middle_encoder(radar_middle_encoder)
 
         self.fusion_method = pts_bbox_head['transformer'].get('fusion_method', None)
+        self.freeze_unibev = freeze_unibev
 
-
-        if freeze_unibev:
+        if self.freeze_unibev:
             for name, param in self.named_parameters():
                 # print(f"name: {name}, param: {param}")
                 if 'bev_consumer' not in name:
@@ -103,7 +103,30 @@ class UniBEV(MVXTwoStageDetector):
                 if param.requires_grad == True:
                     print(f"Parameter {name} is trainable")
 
-
+    def train(self, mode=True):
+        """Convert the model into training mode while keeping UniBEV frozen parts in eval mode."""
+        super(UniBEV, self).train(mode)
+        
+        # If we are in training mode but want UniBEV frozen, 
+        # we must force the sub-modules back to eval() 
+        # because the super().train(mode) just set them all to True.
+        if mode and hasattr(self, 'freeze_unibev') and self.freeze_unibev:
+            print("Freezing UniBEV parts during training...")
+            # 1. Freeze the feature extraction backbones
+            self.img_backbone.eval()
+            self.pts_backbone.eval()
+            if self.with_img_neck: self.img_neck.eval()
+            if self.with_pts_neck: self.pts_neck.eval()
+            
+            # 2. Freeze the Head (This is where the BEV embedding noise lives)
+            # This kills the ffn_dropout (0.1) in the transformer layers
+            self.pts_bbox_head.eval()
+            
+            # 3. If you have an auxiliary network (bev_consumer), 
+            # ensure IT stays in training mode
+            if hasattr(self.pts_bbox_head, 'bev_consumer'):
+                self.pts_bbox_head.bev_consumer.train()
+    
     def extract_img_feat(self, img, img_metas=None):
         """Extract features of images."""
         if img is not None:
@@ -279,6 +302,10 @@ class UniBEV(MVXTwoStageDetector):
         Returns:
             dict: Losses of different branches.
         """
+        if self.pts_bbox_head.training:
+            print("WARNING: UniBEV Head is still in training mode!")
+        else:
+            print("UniBEV Head is in eval mode during training!")
         if self.use_camera:
             assert img is not None
         if self.use_lidar:

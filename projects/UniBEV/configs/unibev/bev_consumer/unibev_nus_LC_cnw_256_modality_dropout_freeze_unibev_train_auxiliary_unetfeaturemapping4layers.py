@@ -7,12 +7,12 @@ eval_interval = 10000 # SET super high to stop calculating val/nuscenes metrics 
 val_interval = 1
 samples_per_gpu = 5
 workers_per_gpu = 4  # Reduced to free memory
-max_epochs = 30
-save_interval = 2
+max_epochs = 20
+save_interval = 5
 log_interval = 1
 fusion_method = 'linear'
 feature_norm = 'ChannelNormWeights'
-modality_dropout_prob = 0.5
+modality_dropout_prob = 0.0
 
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
@@ -25,15 +25,18 @@ val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
 
 # train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/one_sample_mini_nuscenes_infos_temporal_train.pkl'
 # val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
-feature_mapping_model = 'FlexibleUNetSiLU'
-channel_sizes = [128, 256, 512, 1024]
-work_dir = f'./outputs/train/2401202601_{feature_mapping_model}{channel_sizes}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}'
+feature_mapping_model = 'SimpleBEVConsumer'
+# feature_mapping_model = 'UnetConcatenated'
+# channel_sizes = [64, 128, 256, 512]
+channel_sizes = [256, 512, 1024, 2048]
+work_dir = f'./outputs/train/2801202601_{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}_with_detection_losses'
 
 load_from = '/home/mingdayang/UniBEV/projects/UniBEV/checkpoints/unibev_cnw_256_nus_MD.pth'
 
 
 # n_blocks = 8
 
+# resume_from = '/home/mingdayang/mmdetection3d/outputs/train/2401202604_FlexibleUNetSiLU[64, 128, 256, 512]_one_sample_mini_nuscenes_infos_temporal_train_mini_nuscenes_infos_temporal_val_debug_ones_like_test/latest.pth'
 resume_from = None
 plugin = True
 plugin_dir = 'mmdet3d/unibev_plugin/'
@@ -85,7 +88,7 @@ train_pipeline = [
         use_dim=5),
     dict(
         type='LoadPointsFromMultiSweeps',
-        sweeps_num=5,  # Reduced from 10 to save memory
+        sweeps_num=10,
         use_dim=[0, 1, 2, 3, 4],
         file_client_args=file_client_args,
         pad_empty_sweeps=True,
@@ -94,16 +97,78 @@ train_pipeline = [
     dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
 
     dict(type='LoadMultiViewImageFromFiles', to_float32=True),
+    # dict(type='PhotoMetricDistortionMultiViewImage'),
     dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectNameFilter', classes=class_names),
+    # dict(type='PointShuffle'),
+    dict(type='NormalizeMultiviewImage', **img_norm_cfg),
+    dict(type='PadMultiViewImage', size_divisor=32),
+    dict(type='DefaultFormatBundle3D', class_names=class_names, with_label=False), ## which DefaultFormat
+    dict(type='CustomCollect3D', keys=['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d']) ## which data collection
+    # dict(type='CustomCollect3D', keys=['points', 'img'])
+]
+
+test_pipeline1 = [
+    dict(
+        type='LoadPointsFromFile',
+        coord_type='LIDAR',
+        load_dim=5,
+        use_dim=5),
+    dict(
+        type='LoadPointsFromMultiSweeps',
+        sweeps_num=10,
+        use_dim=[0, 1, 2, 3, 4],
+        file_client_args=file_client_args,
+        pad_empty_sweeps=True,
+        remove_close=True
+    ),
+    dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
+
+    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
+    dict(type='PhotoMetricDistortionMultiViewImage'),
+    dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
+    # dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    # dict(type='ObjectNameFilter', classes=class_names),
     dict(type='PointShuffle'),
+    dict(type='NormalizeMultiviewImage', **img_norm_cfg),
+    dict(type='PadMultiViewImage', size_divisor=32),
+    dict(
+        type='MultiScaleFlipAug3D',
+        img_scale=img_scale,
+        pts_scale_ratio=1,
+        flip=False,
+        transforms=[
+            dict(type='DefaultFormatBundle3D', class_names=class_names, with_label=False), ## which DefaultFormat
+            dict(type='CustomCollect3D', keys=['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d']), ## which data collection
+        ]
+    )
+]
+
+temp_pipeline = [
+        dict(
+        type='LoadPointsFromFile',
+        coord_type='LIDAR',
+        load_dim=5,
+        use_dim=5,
+    ),
+    dict(
+        type='LoadPointsFromMultiSweeps',
+        sweeps_num=10,
+        use_dim=[0, 1, 2, 3, 4],
+        file_client_args=file_client_args,
+        pad_empty_sweeps=True,
+        remove_close=True
+    ),
+    dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
+    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg),
     dict(type='PadMultiViewImage', size_divisor=32),
     dict(type='DefaultFormatBundle3D', class_names=class_names), ## which DefaultFormat
     dict(type='CustomCollect3D', keys=['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d']) ## which data collection
-    # dict(type='CustomCollect3D', keys=['points', 'img']) ## which data collection
+
 ]
+
 test_pipeline = [
     dict(
         type='LoadPointsFromFile',
@@ -160,22 +225,22 @@ data = dict(
     samples_per_gpu=samples_per_gpu,
     workers_per_gpu=workers_per_gpu,
     train=dict(
-            type=dataset_type,
-            data_root=data_root,
-            ann_file=data_root + train_ann_file,
-            load_interval=1,
-            pipeline=train_pipeline,
-            classes=class_names,
-            modality=input_modality,
-            test_mode=False,
-            use_valid_flag=True,
-            box_type_3d='LiDAR'),
+        type=dataset_type,
+        data_root=data_root,
+        ann_file=data_root + train_ann_file,
+        load_interval=1,
+        pipeline=train_pipeline,
+        classes=class_names,
+        modality=input_modality,
+        test_mode=False,
+        use_valid_flag=True,
+        box_type_3d='LiDAR'),
     val=dict(
         type=dataset_type,
         data_root=data_root,
         ann_file=data_root + val_ann_file,
         load_interval=1,
-        pipeline=test_pipeline, # changed to train_pipeline from test_pipeline
+        pipeline=eval_pipeline,
         classes=class_names,
         modality=input_modality,
         test_mode=True, # changed to false
@@ -191,12 +256,13 @@ data = dict(
         test_mode=True,
         box_type_3d='LiDAR'),
     shuffler_sampler=dict(type='DistributedGroupSampler'),
-    nonshuffler_sampler=dict(type='DistributedSampler'))
+    nonshuffler_sampler=dict(type='DistributedSampler')
+)
 
 model = dict(
     type='UniBEV',
     freeze_unibev=True,
-    use_grid_mask=True,
+    use_grid_mask=False,
     pts_voxel_layer=dict(
         max_num_points=10,
         voxel_size=voxel_size,
@@ -301,7 +367,7 @@ model = dict(
                         embed_dims=_dim_,
                     ),
                     feedforward_channels=_ffn_dim_,
-                    ffn_dropout=0.1,
+                    ffn_dropout=0.0, # changed from 0.1 to 0.0
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm'))),
             pts_encoder=dict(
@@ -333,7 +399,7 @@ model = dict(
                         embed_dims=_dim_,
                     ),
                     feedforward_channels=_ffn_dim_,
-                    ffn_dropout=0.1,
+                    ffn_dropout=0.0, # changed from 0.1 to 0.0
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm'))),
             decoder=dict(
@@ -347,7 +413,7 @@ model = dict(
                             type='MultiheadAttention',
                             embed_dims=_dim_ * dec_scale_factor,
                             num_heads=8,
-                            dropout=0.1),
+                            dropout=0.0), # changed from 0.1 to 0.0
                          dict(
                             type='CustomMSDeformableAttention',
                             embed_dims=_dim_ * dec_scale_factor,
@@ -358,7 +424,7 @@ model = dict(
                         embed_dims=_dim_ * dec_scale_factor,
                     ),
                     feedforward_channels=_ffn_dim_ * dec_scale_factor,
-                    ffn_dropout=0.1,
+                    ffn_dropout=0.0, # changed from 0.1 to 0.0
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm')))),
         bev_consumer=dict(
@@ -386,46 +452,72 @@ model = dict(
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
-            loss_weight=0.0),
-        loss_bbox=dict(type='L1Loss', loss_weight=0.0),
+            loss_weight=2.0),
+        loss_bbox=dict(type='L1Loss', loss_weight=0.25),
         loss_iou=dict(type='GIoULoss', loss_weight=0.0)),
+        # loss_cls=dict(
+        #     type='FocalLoss',
+        #     use_sigmoid=True,
+        #     gamma=2.0,
+        #     alpha=0.25,
+        #     loss_weight=0.0),
+        # loss_bbox=dict(type='L1Loss', loss_weight=0.0),
+        # loss_iou=dict(type='GIoULoss', loss_weight=0.0)),
     # model training and testing settings
     train_cfg=dict(pts=dict(
         assigner=dict(
             type='HungarianAssigner3DBEVFormer',
-            cls_cost=dict(type='FocalLossCost', weight=0.0),
-            reg_cost=dict(type='BBox3DL1CostBEVFormer', weight=0.0),
+            cls_cost=dict(type='FocalLossCost', weight=2.0),
+            reg_cost=dict(type='BBox3DL1CostBEVFormer', weight=0.25),
             iou_cost=dict(type='IoUCost', weight=0.0), # Fake cost. This is just to make it compatible with DETR head.
             pc_range=point_cloud_range))))
 
 
-evaluation = dict(interval=eval_interval, pipeline=test_pipeline)  # Disabled - using val_step instead
+evaluation = dict(interval=eval_interval, pipeline=test_pipeline)
 optimizer = dict(
     type='AdamW',
-    lr=1e-4,
-    paramwise_cfg=dict(
-        custom_keys={
-            'img_backbone': dict(lr_mult=0.1),
-            'pts_backbone': dict(lr_mult=0.1),
-        }),
-    weight_decay=1e-4)
-# max_norm=10 is better for SECOND
-optimizer_config = dict(grad_clip=dict(max_norm=5, norm_type=2))
-
-lr_config = dict(policy='fixed')
-lr_config = dict(
-    policy='CosineAnnealing',
-    warmup='linear',
-    warmup_iters=100,
-    warmup_ratio=1e-3,
-    min_lr_ratio=0.1
+    lr=1e-3,  # CHANGED: Lowered learning rate from 1e-3 to 1e-4
+    weight_decay=0.01 # CHANGED: Added a small amount of weight decay
 )
 
+optimizer_config = dict(
+    grad_clip=dict(max_norm=0.1, norm_type=2) # CHANGED: Lowered max_norm to be closer to observed grads
+)
+# lr_config = dict(policy='fixed') # CHANGED: Removed fixed policy
+lr_config = dict(
+    policy='CosineAnnealing', # CHANGED: Use a scheduler
+    warmup='linear',
+    warmup_iters=400,
+    warmup_ratio=1.0 / 3,
+    min_lr_ratio=1e-6
+)
+
+# lr_config = dict(
+#     policy='CosineAnnealingLR',
+#     eta_min=1e-6,
+#     by_epoch=False,
+#     T_max=
+
+# )
 
 # runtime settings
 total_epochs = max_epochs
 
 checkpoint_config = dict(interval=save_interval)
+
+
+# yapf:enable
+dist_params = dict(backend='nccl')
+log_level = 'INFO'
+# custom_hooks = [
+#     dict(type='CheckpointLateStageHook',
+#          start=max_epochs - 5,
+#          priority=60),
+# ]
+workflow = [('train', 1), ('val', 1)]
+# workflow = [('train', 1)]  
+
+
 log_config = dict(
     interval=log_interval,
     hooks=[
@@ -457,17 +549,8 @@ log_config = dict(
                     optimizer=optimizer,
                     lr_config=lr_config,
                     training_ann_file=train_ann_file,
-                    validation_ann_file=val_ann_file
+                    validation_ann_file=val_ann_file,
+                    workflow=workflow
                 ),
             ))
     ])
-# yapf:enable
-dist_params = dict(backend='nccl')
-log_level = 'INFO'
-# custom_hooks = [
-#     dict(type='CheckpointLateStageHook',
-#          start=max_epochs - 5,
-#          priority=60),
-# ]
-workflow = [('train', 1), ('val', 1)]
-# workflow = [('train', 1)]  
