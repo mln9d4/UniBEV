@@ -630,6 +630,8 @@ class UniBEVTransformer_bevconsumer(BaseModule):
                  dual_queries = False,
                  vis_output = None,
                  cna_constant_init = None,
+                 bev_consumer = None,
+                 bev_consumer_as_lidar_feature_map = False,
                  **kwargs):
         super(UniBEVTransformer_bevconsumer, self).__init__(**kwargs)
 
@@ -674,6 +676,9 @@ class UniBEVTransformer_bevconsumer(BaseModule):
         if self.checkpoint_path is not None:
             print("=====> Loading PTS model from checkpoint for BEV consumer...")
             self.pts_model = self._build_pts_model(self.checkpoint_path)
+
+        self.bev_consumer = bev_consumer
+        self.bev_consumer_as_lidar_feature_map = bev_consumer_as_lidar_feature_map
 
     def _build_pts_model(self, checkpoint_path):
         """Build and load custom pts model from checkpoint.
@@ -1140,8 +1145,8 @@ class UniBEVTransformer_bevconsumer(BaseModule):
             pts_bev_embed = None
 
         # Extra code written by Ming to return intermediate feature maps for online training
-        ori_img_bev_embed = img_bev_embed.clone() if img_bev_embed is not None else None
-        ori_pts_bev_embed = pts_bev_embed.clone() if pts_bev_embed is not None else None
+        # ori_img_bev_embed = img_bev_embed.clone() if img_bev_embed is not None else None
+        # ori_pts_bev_embed = pts_bev_embed.clone() if pts_bev_embed is not None else None
 
         if self.vis_output is not None:
             # If you want to save only img or pts, just set None for respective variable. I know, shitty but
@@ -1153,13 +1158,27 @@ class UniBEVTransformer_bevconsumer(BaseModule):
                 # ori_img_bev_embed=None,
             )
 
+        loss_bev_consumer = None
         if self.checkpoint_path is not None:
         # use our trained model to create pts_bev_embed before fusion and use that.
-            print("=====> Using PTS model to generate pts_bev_embed for BEV consumer...")
-            print("=====> overwriting previous pts_bev_embed")
+            # print("=====> Using PTS model to generate pts_bev_embed for BEV consumer...")
+            # print("=====> overwriting previous pts_bev_embed")
             pts_bev_embed = self.pts_model(img_bev_embed)
+
+        if self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is True:
+            # If True use the bev_consumer model to process img_bev_embed and use the
+            # output as pts_bev_embed for fusion and compute loss between input pts_bev_embed and output pts_bev_embed
+            pts_bev_embed = self.bev_consumer.forward(img_bev_embed)
+            loss_bev_consumer = self.bev_consumer.loss(img_bev_embed, pts_bev_embed)
+        elif self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is False:
+            # If False use the bev_consumer model to process img_bev_embed and compute loss between input img_bev_embed and prediction
+            # this logic gate is used for evaluation and training of bev_consumer as a separate model
+            bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
+            loss_bev_consumer = self.bev_consumer.loss(img_bev_embed, bev_consumer_prediction)
+
         img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
         img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)
+
 
         fused_bev_embed = self.multi_modal_fusion(img_bev_embed, pts_bev_embed)
 
@@ -1209,5 +1228,5 @@ class UniBEVTransformer_bevconsumer(BaseModule):
 
         inter_references_out = inter_references
 
-        return fused_bev_embed, inter_states, init_reference_out, inter_references_out, ori_img_bev_embed, ori_pts_bev_embed
+        return fused_bev_embed, inter_states, init_reference_out, inter_references_out, loss_bev_consumer
     

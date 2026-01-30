@@ -7,8 +7,8 @@ eval_interval = 10000 # SET super high to stop calculating val/nuscenes metrics 
 val_interval = 1
 samples_per_gpu = 5
 workers_per_gpu = 4  # Reduced to free memory
-max_epochs = 20
-save_interval = 5
+max_epochs = 10
+save_interval = 1
 log_interval = 1
 fusion_method = 'linear'
 feature_norm = 'ChannelNormWeights'
@@ -17,6 +17,10 @@ modality_dropout_prob = 0.0
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
+
+##############
+# Mings variables
+###############
 train_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_train.pkl'
 val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
 
@@ -25,21 +29,23 @@ val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
 
 # train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/one_sample_mini_nuscenes_infos_temporal_train.pkl'
 # val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
-feature_mapping_model = 'SimpleBEVConsumer'
-# feature_mapping_model = 'UnetConcatenated'
+# feature_mapping_model = 'UNetAttention'
+feature_mapping_model = 'UnetConcatenated'
 # channel_sizes = [64, 128, 256, 512]
 channel_sizes = [256, 512, 1024, 2048]
-work_dir = f'./outputs/train/2801202601_{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}_with_detection_losses'
+bev_consumer_as_lidar_feature_map_bool = False
+
+work_dir = f'./outputs/train/30012026001_{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}_testing_viability_only_l1_loss'
 
 load_from = '/home/mingdayang/UniBEV/projects/UniBEV/checkpoints/unibev_cnw_256_nus_MD.pth'
 
-
-# n_blocks = 8
+################ End of Ming's variables
 
 # resume_from = '/home/mingdayang/mmdetection3d/outputs/train/2401202604_FlexibleUNetSiLU[64, 128, 256, 512]_one_sample_mini_nuscenes_infos_temporal_train_mini_nuscenes_infos_temporal_val_debug_ones_like_test/latest.pth'
 resume_from = None
 plugin = True
 plugin_dir = 'mmdet3d/unibev_plugin/'
+
 
 ## nuscenes and pointpillars setting
 point_cloud_range = [-54, -54, -5, 54, 54, 3]
@@ -97,76 +103,16 @@ train_pipeline = [
     dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
 
     dict(type='LoadMultiViewImageFromFiles', to_float32=True),
-    # dict(type='PhotoMetricDistortionMultiViewImage'),
+    dict(type='PhotoMetricDistortionMultiViewImage'),
     dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectNameFilter', classes=class_names),
-    # dict(type='PointShuffle'),
-    dict(type='NormalizeMultiviewImage', **img_norm_cfg),
-    dict(type='PadMultiViewImage', size_divisor=32),
-    dict(type='DefaultFormatBundle3D', class_names=class_names, with_label=False), ## which DefaultFormat
-    dict(type='CustomCollect3D', keys=['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d']) ## which data collection
-    # dict(type='CustomCollect3D', keys=['points', 'img'])
-]
-
-test_pipeline1 = [
-    dict(
-        type='LoadPointsFromFile',
-        coord_type='LIDAR',
-        load_dim=5,
-        use_dim=5),
-    dict(
-        type='LoadPointsFromMultiSweeps',
-        sweeps_num=10,
-        use_dim=[0, 1, 2, 3, 4],
-        file_client_args=file_client_args,
-        pad_empty_sweeps=True,
-        remove_close=True
-    ),
-    dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
-
-    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
-    dict(type='PhotoMetricDistortionMultiViewImage'),
-    dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
-    # dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
-    # dict(type='ObjectNameFilter', classes=class_names),
     dict(type='PointShuffle'),
-    dict(type='NormalizeMultiviewImage', **img_norm_cfg),
-    dict(type='PadMultiViewImage', size_divisor=32),
-    dict(
-        type='MultiScaleFlipAug3D',
-        img_scale=img_scale,
-        pts_scale_ratio=1,
-        flip=False,
-        transforms=[
-            dict(type='DefaultFormatBundle3D', class_names=class_names, with_label=False), ## which DefaultFormat
-            dict(type='CustomCollect3D', keys=['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d']), ## which data collection
-        ]
-    )
-]
-
-temp_pipeline = [
-        dict(
-        type='LoadPointsFromFile',
-        coord_type='LIDAR',
-        load_dim=5,
-        use_dim=5,
-    ),
-    dict(
-        type='LoadPointsFromMultiSweeps',
-        sweeps_num=10,
-        use_dim=[0, 1, 2, 3, 4],
-        file_client_args=file_client_args,
-        pad_empty_sweeps=True,
-        remove_close=True
-    ),
-    dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
-    dict(type='LoadMultiViewImageFromFiles', to_float32=True),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg),
     dict(type='PadMultiViewImage', size_divisor=32),
     dict(type='DefaultFormatBundle3D', class_names=class_names), ## which DefaultFormat
     dict(type='CustomCollect3D', keys=['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d']) ## which data collection
-
+    # dict(type='CustomCollect3D', keys=['points', 'img'])
 ]
 
 test_pipeline = [
@@ -333,7 +279,7 @@ model = dict(
         with_box_refine=True,
         as_two_stage=False,
         transformer=dict(
-            type='UniBEVTransformer',
+            type='UniBEVTransformer_bevconsumer',
             embed_dims=_dim_,
             fusion_method=fusion_method,
             drop_modality=modality_dropout_prob,
@@ -427,6 +373,7 @@ model = dict(
                     ffn_dropout=0.0, # changed from 0.1 to 0.0
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm')))),
+        bev_consumer_as_lidar_feature_map=bev_consumer_as_lidar_feature_map_bool,
         bev_consumer=dict(
             type=feature_mapping_model,
             input_channels=_dim_,
@@ -447,28 +394,37 @@ model = dict(
             row_num_embed=bev_h_,
             col_num_embed=bev_w_,
             ),
-        loss_cls=dict(
-            type='FocalLoss',
-            use_sigmoid=True,
-            gamma=2.0,
-            alpha=0.25,
-            loss_weight=2.0),
-        loss_bbox=dict(type='L1Loss', loss_weight=0.25),
-        loss_iou=dict(type='GIoULoss', loss_weight=0.0)),
         # loss_cls=dict(
         #     type='FocalLoss',
         #     use_sigmoid=True,
         #     gamma=2.0,
         #     alpha=0.25,
-        #     loss_weight=0.0),
-        # loss_bbox=dict(type='L1Loss', loss_weight=0.0),
+        #     loss_weight=2.0),
+        # loss_bbox=dict(type='L1Loss', loss_weight=0.25),
         # loss_iou=dict(type='GIoULoss', loss_weight=0.0)),
+        #### Ming's custom downstream losses weights
+        # loss_cls=dict(
+        #     type='FocalLoss',
+        #     use_sigmoid=True,
+        #     gamma=2.0,
+        #     alpha=0.25,
+        #     loss_weight=0.02),
+        # loss_bbox=dict(type='L1Loss', loss_weight=0.0025),
+        # loss_iou=dict(type='GIoULoss', loss_weight=0.0)),
+        loss_cls=dict(
+            type='FocalLoss',
+            use_sigmoid=True,
+            gamma=2.0,
+            alpha=0.25,
+            loss_weight=0.0),
+        loss_bbox=dict(type='L1Loss', loss_weight=0.0),
+        loss_iou=dict(type='GIoULoss', loss_weight=0.0)),
     # model training and testing settings
     train_cfg=dict(pts=dict(
         assigner=dict(
             type='HungarianAssigner3DBEVFormer',
-            cls_cost=dict(type='FocalLossCost', weight=2.0),
-            reg_cost=dict(type='BBox3DL1CostBEVFormer', weight=0.25),
+            cls_cost=dict(type='FocalLossCost', weight=0.0),
+            reg_cost=dict(type='BBox3DL1CostBEVFormer', weight=0.0),
             iou_cost=dict(type='IoUCost', weight=0.0), # Fake cost. This is just to make it compatible with DETR head.
             pc_range=point_cloud_range))))
 
@@ -476,20 +432,21 @@ model = dict(
 evaluation = dict(interval=eval_interval, pipeline=test_pipeline)
 optimizer = dict(
     type='AdamW',
-    lr=1e-3,  # CHANGED: Lowered learning rate from 1e-3 to 1e-4
-    weight_decay=0.01 # CHANGED: Added a small amount of weight decay
+    lr=1e-4,  
+    weight_decay=0.05,
+    betas=(0.9, 0.999)
 )
 
 optimizer_config = dict(
-    grad_clip=dict(max_norm=0.1, norm_type=2) # CHANGED: Lowered max_norm to be closer to observed grads
+    grad_clip=dict(max_norm=1, norm_type=2) 
 )
 # lr_config = dict(policy='fixed') # CHANGED: Removed fixed policy
 lr_config = dict(
     policy='CosineAnnealing', # CHANGED: Use a scheduler
     warmup='linear',
-    warmup_iters=400,
-    warmup_ratio=1.0 / 3,
-    min_lr_ratio=1e-6
+    warmup_iters=100,
+    warmup_ratio=1e-4,
+    min_lr_ratio=1e-2
 )
 
 # lr_config = dict(
@@ -532,13 +489,14 @@ log_config = dict(
             # out_suffix=('.log.json', '.log', '.py', 'pth', 'pt'),
             # log_checkpoint=True, # Doens't work.
             init_kwargs=dict(
-                project='Feature Mapping UniBEV',
+                project='Small test, L1 loss vs Detection losses',
                 name=f'{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_epochs{max_epochs}_samplespergpu{samples_per_gpu}',
                 notes='',
                 allow_val_change=True,
                 save_code=True,
                 config=dict(
                     model=feature_mapping_model,
+                    channel_sizes=channel_sizes,
                     work_dir=work_dir,
                     total_epochs=max_epochs,
                     samples_per_gpu=samples_per_gpu,
@@ -550,7 +508,8 @@ log_config = dict(
                     lr_config=lr_config,
                     training_ann_file=train_ann_file,
                     validation_ann_file=val_ann_file,
-                    workflow=workflow
+                    workflow=workflow,
+                    bev_consumer_as_lidar_feature_map=bev_consumer_as_lidar_feature_map_bool,
                 ),
             ))
     ])

@@ -42,6 +42,7 @@ class UniBEV_Head(DETRHead):
                  with_box_refine=False,
                  as_two_stage=False,
                  bev_consumer=None,    # config for bev consumer head for feature mapping function - Ming
+                 bev_consumer_as_lidar_feature_map=False,  # Whether to use BEV consumer output as lidar feature map - Ming
                  transformer=None,
                  bbox_coder=None,
                  num_cls_fcs=2,
@@ -89,11 +90,12 @@ class UniBEV_Head(DETRHead):
         self.code_weights = nn.Parameter(torch.tensor(
             self.code_weights, requires_grad=False), requires_grad=False)
 
-
+        self.bev_consumer_as_lidar_feature_map = bev_consumer_as_lidar_feature_map
         # initialize bev consumer for feature mapping function
         if self.bev_consumer is not None:
             self.bev_consumer = build_head(bev_consumer)
-
+            self.transformer.bev_consumer = self.bev_consumer
+            self.transformer.bev_consumer_as_lidar_feature_map = self.bev_consumer_as_lidar_feature_map
 
     def _init_layers(self):
         """Initialize classification branch and regression branch of head."""
@@ -204,7 +206,7 @@ class UniBEV_Head(DETRHead):
             # prev_bev=prev_bev
         )
 
-        bev_embed, hs, init_reference, inter_references, ori_img_bev_embed, ori_pts_bev_embed = outputs
+        bev_embed, hs, init_reference, inter_references, loss_bev_consumer = outputs
         # torch.save(ori_img_bev_embed, '/home/mingdayang/mmdetection3d/debug_dump/ori_img_bev_embed_head.pt')
         hs = hs.permute(0, 2, 1, 3)
         outputs_classes = []
@@ -247,12 +249,13 @@ class UniBEV_Head(DETRHead):
             'enc_bbox_preds': None,
         }
 
-
+        if loss_bev_consumer is not None:
+            outs['loss_bev_consumer'] = loss_bev_consumer
         # Create outputs for auxiliary network that trains the feature mapping function - Ming
-        if self.bev_consumer is not None:
-            bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
-            outs['bev_consumer_pred'] = bev_consumer_pred
-            outs['ori_pts_bev_embed'] = ori_pts_bev_embed
+        # if self.bev_consumer is not None:
+        #     bev_consumer_pred = self.bev_consumer.forward(ori_img_bev_embed)
+        #     outs['bev_consumer_pred'] = bev_consumer_pred
+        #     outs['ori_pts_bev_embed'] = ori_pts_bev_embed
 
             # Manual hijacking to see if pipeline works as intended and trains
             # bev_consumer_pred = self.bev_consumer.forward(torch.zeros_like(ori_img_bev_embed))
@@ -534,11 +537,13 @@ class UniBEV_Head(DETRHead):
 
 
         # loss for auxiliary network that trains the feature mapping function
-        if self.bev_consumer is not None:
-            target = preds_dicts['ori_pts_bev_embed'].detach()  # Self-reconstruction
-            pred = preds_dicts['bev_consumer_pred']
-            loss_dict.update(self.bev_consumer.loss(pred, target))
-        
+        # if self.bev_consumer is not None:
+        #     target = preds_dicts['ori_pts_bev_embed'].detach()  # Self-reconstruction
+        #     pred = preds_dicts['bev_consumer_pred']
+        #     loss_dict.update(self.bev_consumer.loss(pred, target))
+        if 'loss_bev_consumer' in preds_dicts:
+            if preds_dicts['loss_bev_consumer'] is not None:
+                loss_dict.update(preds_dicts['loss_bev_consumer'])
         return loss_dict
 
     @force_fp32(apply_to=('preds_dicts'))

@@ -98,7 +98,7 @@ class UniBEV(MVXTwoStageDetector):
                     m.eval()
                     m.requires_grad_(False)
 
-            print("<<========== Params which are NOT frozen ==========>>")
+            # print("<<========== Params which are NOT frozen ==========>>")
             for name, param in self.named_parameters():
                 if param.requires_grad == True:
                     print(f"Parameter {name} is trainable")
@@ -111,7 +111,7 @@ class UniBEV(MVXTwoStageDetector):
         # we must force the sub-modules back to eval() 
         # because the super().train(mode) just set them all to True.
         if mode and hasattr(self, 'freeze_unibev') and self.freeze_unibev:
-            print("Freezing UniBEV parts during training...")
+            # print("Freezing UniBEV parts during training...")
             # 1. Freeze the feature extraction backbones
             self.img_backbone.eval()
             self.pts_backbone.eval()
@@ -302,10 +302,12 @@ class UniBEV(MVXTwoStageDetector):
         Returns:
             dict: Losses of different branches.
         """
-        if self.pts_bbox_head.training:
-            print("WARNING: UniBEV Head is still in training mode!")
-        else:
-            print("UniBEV Head is in eval mode during training!")
+        # if self.pts_bbox_head.training:
+        #     print("WARNING: UniBEV Head is still in training mode!")
+        # else:
+        #     print("UniBEV Head is in eval mode during training!")
+
+
         if self.use_camera:
             assert img is not None
         if self.use_lidar:
