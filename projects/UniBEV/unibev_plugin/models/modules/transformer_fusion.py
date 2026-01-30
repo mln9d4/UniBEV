@@ -1168,8 +1168,9 @@ class UniBEVTransformer_bevconsumer(BaseModule):
         if self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is True:
             # If True use the bev_consumer model to process img_bev_embed and use the
             # output as pts_bev_embed for fusion and compute loss between input pts_bev_embed and output pts_bev_embed
-            pts_bev_embed = self.bev_consumer.forward(img_bev_embed)
-            loss_bev_consumer = self.bev_consumer.loss(img_bev_embed, pts_bev_embed)
+            bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
+            loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
+            pts_bev_embed = bev_consumer_prediction
         elif self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is False:
             # If False use the bev_consumer model to process img_bev_embed and compute loss between input img_bev_embed and prediction
             # this logic gate is used for evaluation and training of bev_consumer as a separate model
