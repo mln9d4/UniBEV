@@ -1174,7 +1174,7 @@ class UniBEVTransformer_bevconsumer(BaseModule):
             # If False use the bev_consumer model to process img_bev_embed and compute loss between input img_bev_embed and prediction
             # this logic gate is used for evaluation and training of bev_consumer as a separate model
             bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
-            loss_bev_consumer = self.bev_consumer.loss(img_bev_embed, bev_consumer_prediction)
+            loss_bev_consumer = self.bev_consumer.loss(pts_bev_embed, bev_consumer_prediction)
 
         img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
         img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)
