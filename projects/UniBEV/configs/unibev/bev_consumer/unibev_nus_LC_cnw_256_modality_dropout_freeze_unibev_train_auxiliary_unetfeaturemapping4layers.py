@@ -7,7 +7,7 @@ eval_interval = 10000 # SET super high to stop calculating val/nuscenes metrics 
 val_interval = 1
 samples_per_gpu = 5
 workers_per_gpu = 4  # Reduced to free memory
-max_epochs = 10
+max_epochs = 20
 save_interval = 1
 log_interval = 1
 fusion_method = 'linear'
@@ -21,27 +21,30 @@ sub_dir = 'mmdet3d_bevformer/'
 ##############
 # Mings variables
 ###############
-train_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_train.pkl'
-val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
+# train_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_train.pkl'
+# val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
 
 # train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/sampled_quarter_nuscenes_infos_temporal_train.pkl'
-# val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
+train_ann_file = sub_dir + 'nuscenes_infos_temporal_train.pkl'
+val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
 
 # train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/one_sample_mini_nuscenes_infos_temporal_train.pkl'
 # val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
-# feature_mapping_model = 'UNetAttention'
-feature_mapping_model = 'UnetConcatenated'
+feature_mapping_model = 'UNetConcatenated'
+# feature_mapping_model = 'UnetPadDeeper'
 # channel_sizes = [64, 128, 256, 512]
 channel_sizes = [256, 512, 1024, 2048]
 bev_consumer_as_lidar_feature_map_bool = False
+loss_weights=dict(l1=1.0, msssim=0.0, std=0.0)
 
-work_dir = f'./outputs/train/30012026001_{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}_testing_viability_only_l1_loss'
+work_dir = f'./outputs/train/02022026003_{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}_train_long'
 
 load_from = '/home/mingdayang/UniBEV/projects/UniBEV/checkpoints/unibev_cnw_256_nus_MD.pth'
 
 ################ End of Ming's variables
 
 # resume_from = '/home/mingdayang/mmdetection3d/outputs/train/2401202604_FlexibleUNetSiLU[64, 128, 256, 512]_one_sample_mini_nuscenes_infos_temporal_train_mini_nuscenes_infos_temporal_val_debug_ones_like_test/latest.pth'
+# resume_from = '/home/mingdayang/mmdetection3d/outputs/train/31012026003_UnetConcatenated_mini_nuscenes_infos_temporal_train_mini_nuscenes_infos_temporal_val_testing_viability_detection_losses/latest.pth'
 resume_from = None
 plugin = True
 plugin_dir = 'mmdet3d/unibev_plugin/'
@@ -208,7 +211,7 @@ data = dict(
 model = dict(
     type='UniBEV',
     freeze_unibev=True,
-    use_grid_mask=False,
+    use_grid_mask=True,
     pts_voxel_layer=dict(
         max_num_points=10,
         voxel_size=voxel_size,
@@ -380,7 +383,8 @@ model = dict(
             output_channels=_dim_,
             bev_h=bev_h_,
             bev_w=bev_w_,
-            channel_sizes=channel_sizes
+            channel_sizes=channel_sizes,
+            loss_weights=loss_weights
         ),
         bbox_coder=dict(
             type='NMSFreeCoder',
@@ -432,30 +436,68 @@ model = dict(
 evaluation = dict(interval=eval_interval, pipeline=test_pipeline)
 optimizer = dict(
     type='AdamW',
-    lr=1e-4,  
-    weight_decay=0.05,
+    lr=2e-4,  
+    weight_decay=0.1,
     betas=(0.9, 0.999)
 )
 
 optimizer_config = dict(
-    grad_clip=dict(max_norm=1, norm_type=2) 
+    grad_clip=dict(max_norm=35, norm_type=2) 
 )
 # lr_config = dict(policy='fixed') # CHANGED: Removed fixed policy
+
 lr_config = dict(
-    policy='CosineAnnealing', # CHANGED: Use a scheduler
-    warmup='linear',
-    warmup_iters=100,
-    warmup_ratio=1e-4,
-    min_lr_ratio=1e-2
+    policy='OneCycle',
+    max_lr=4e-4,              # Slightly higher for full set (if batch size is larger)
+    total_steps=None,          
+    pct_start=0.1,             # Lowered from 0.3 to 0.1
+    anneal_strategy='cos',     
+    div_factor=10,             
+    final_div_factor=1e5,      # Lower final LR for smoother convergence
+    by_epoch=False             
 )
 
 # lr_config = dict(
-#     policy='CosineAnnealingLR',
-#     eta_min=1e-6,
-#     by_epoch=False,
-#     T_max=
-
+#     policy='OneCycle',
+#     max_lr=2e-4,
+#     total_steps=None,          # Calculated automatically
+#     pct_start=0.3,             # Phase 1: Warm up for 30% of training
+#     anneal_strategy='cos',     # Corrected keyword: 'cos' or 'linear'
+#     div_factor=10,             # Start LR = max_lr / 10
+#     final_div_factor=1e4,      # End LR = max_lr / 10,000
+#     by_epoch=False             # Updates LR every iteration
 # )
+
+# lr_config = dict(
+#     policy='CosineAnnealing', # CHANGED: Use a scheduler
+#     warmup='linear',
+#     warmup_iters=1000,
+#     warmup_ratio=1e-4,
+#     min_lr_ratio=1e-2,
+#     by_epoch=False,
+# )
+
+# lr_config = dict(
+#     policy='CosineAnnealing', # The registry key for MMCV
+#     warmup='linear',
+#     warmup_iters=22,          # Exactly 1 epoch of warmup
+#     warmup_ratio=1e-4,         # Start at 1e-5
+#     min_lr_ratio=1e-2,
+#     by_epoch=False,
+# )
+
+
+# lr_config = dict(
+#     policy='CosineRestart', 
+#     periods=[459, 469, 469], # Two 10-epoch cycles
+#     restart_weights=[1.0, 0.7, 0.4],
+#     warmup='linear',
+#     warmup_iters=67, # 1 epoch of warmup
+#     warmup_ratio=1e-3, 
+#     min_lr_ratio=1e-2, # Ends the cycle at 1e-6 (if base is 1e-4)
+#     by_epoch=False,
+# )
+
 
 # runtime settings
 total_epochs = max_epochs
@@ -489,7 +531,7 @@ log_config = dict(
             # out_suffix=('.log.json', '.log', '.py', 'pth', 'pt'),
             # log_checkpoint=True, # Doens't work.
             init_kwargs=dict(
-                project='Small test, L1 loss vs Detection losses',
+                project=f'{feature_mapping_model}',
                 name=f'{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_epochs{max_epochs}_samplespergpu{samples_per_gpu}',
                 notes='',
                 allow_val_change=True,
@@ -510,6 +552,7 @@ log_config = dict(
                     validation_ann_file=val_ann_file,
                     workflow=workflow,
                     bev_consumer_as_lidar_feature_map=bev_consumer_as_lidar_feature_map_bool,
+                    loss_weights=loss_weights,
                 ),
             ))
     ])

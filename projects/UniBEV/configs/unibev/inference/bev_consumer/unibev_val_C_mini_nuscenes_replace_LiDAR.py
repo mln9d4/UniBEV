@@ -5,7 +5,7 @@
 
 eval_interval = 1 # SET super high to stop calculating val/nuscenes metrics during training (we don't want any of it anyway)
 val_interval = 1
-samples_per_gpu = 4
+samples_per_gpu = 5
 workers_per_gpu = 4  # Reduced to free memory
 max_epochs = 10
 save_interval = 1
@@ -23,8 +23,9 @@ val_ann_file = sub_dir + 'nuscenes_infos_temporal_val.pkl'
 # outdir = './outputs/inference/unibev_nus_LC_cnw_256_modality_dropout_freeze_unibev_train_auxiliary_unetfeaturemapping4layers_quarter_nuscenes'
 # val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
 load_from = '/home/mingdayang/UniBEV/projects/UniBEV/checkpoints/unibev_cnw_256_nus_MD.pth'
-featuremapping_checkpoint = '/home/mingdayang/mmdetection3d/outputs/train/29012026001_UnetConcatenated_sampled_quarter_nuscenes_infos_temporal_train_nuscenes_infos_temporal_val_testing_viability_only_low_l1_loss/model_only.pth'
+featuremapping_checkpoint = '/home/mingdayang/mmdetection3d/outputs/train/02022026003_UNetAttention_nuscenes_infos_temporal_train_nuscenes_infos_temporal_val_train_long/model_only.pth'
 # featuremapping_checkpoint = None
+bev_consumer_as_lidar_feature_map_bool = True   
 resume_from = None
 plugin = True
 plugin_dir = 'mmdet3d/unibev_plugin/'
@@ -316,6 +317,7 @@ model = dict(
                     ffn_dropout=0.1,
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm')))),
+        bev_consumer_as_lidar_feature_map=bev_consumer_as_lidar_feature_map_bool,
         bbox_coder=dict(
             type='NMSFreeCoder',
             post_center_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],

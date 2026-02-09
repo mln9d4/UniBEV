@@ -107,23 +107,27 @@ class UniBEV(MVXTwoStageDetector):
         """Convert the model into training mode while keeping UniBEV frozen parts in eval mode."""
         super(UniBEV, self).train(mode)
         
-        # If we are in training mode but want UniBEV frozen, 
-        # we must force the sub-modules back to eval() 
-        # because the super().train(mode) just set them all to True.
         if mode and hasattr(self, 'freeze_unibev') and self.freeze_unibev:
-            # print("Freezing UniBEV parts during training...")
-            # 1. Freeze the feature extraction backbones
+            # 1. Feature Extraction (2D and 3D)
             self.img_backbone.eval()
             self.pts_backbone.eval()
             if self.with_img_neck: self.img_neck.eval()
             if self.with_pts_neck: self.pts_neck.eval()
             
-            # 2. Freeze the Head (This is where the BEV embedding noise lives)
-            # This kills the ffn_dropout (0.1) in the transformer layers
+            # 2. Voxel Encoders (CRITICAL for 3D stability)
+            if hasattr(self, 'pts_voxel_encoder'): self.pts_voxel_encoder.eval()
+            if hasattr(self, 'pts_middle_encoder'): self.pts_middle_encoder.eval()
+            
+            
+            # 3. Radar components (if used)
+            if self.use_radar:
+                if hasattr(self, 'radar_voxel_encoder'): self.radar_voxel_encoder.eval()
+                if hasattr(self, 'radar_middle_encoder'): self.radar_middle_encoder.eval()
+
+            # 4. Freeze the Transformer/Detection Head
             self.pts_bbox_head.eval()
             
-            # 3. If you have an auxiliary network (bev_consumer), 
-            # ensure IT stays in training mode
+            # 5. UNFREEZE the Auxiliary Network
             if hasattr(self.pts_bbox_head, 'bev_consumer'):
                 self.pts_bbox_head.bev_consumer.train()
     

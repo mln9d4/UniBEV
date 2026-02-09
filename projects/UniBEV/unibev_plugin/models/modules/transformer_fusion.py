@@ -708,6 +708,14 @@ class UniBEVTransformer_bevconsumer(BaseModule):
         # config['loss_config'] = None
         # config.pop('reduction', None)
         # Ensure channel_sizes is a list (handle string case)
+        if 'msssim' in config:
+            config.pop('msssim', None)
+        if 'l1' in config: 
+            config.pop('l1', None)
+        if 'std' in config:
+            config.pop('std', None)
+        if 'gamma' in config:
+            config.pop('gamma', None)
         if 'channel_sizes' in config and isinstance(config['channel_sizes'], str):
             import ast
             try:
@@ -719,6 +727,7 @@ class UniBEVTransformer_bevconsumer(BaseModule):
         print(f"✓ Model config: {config}")
         
         # Instantiate model
+        
         model = ModelClass(**config)
         
         # Load state dict
@@ -1170,12 +1179,17 @@ class UniBEVTransformer_bevconsumer(BaseModule):
             # output as pts_bev_embed for fusion and compute loss between input pts_bev_embed and output pts_bev_embed
             bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
             loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
+            if self.bev_consumer.training is True:
+                self.bev_consumer.save_loss_gradient_map(bev_consumer_prediction, pts_bev_embed, 1, 1)
             pts_bev_embed = bev_consumer_prediction
+
         elif self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is False:
             # If False use the bev_consumer model to process img_bev_embed and compute loss between input img_bev_embed and prediction
             # this logic gate is used for evaluation and training of bev_consumer as a separate model
             bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
-            loss_bev_consumer = self.bev_consumer.loss(pts_bev_embed, bev_consumer_prediction)
+            loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
+            if self.bev_consumer.training is True:
+                self.bev_consumer.save_loss_gradient_map(bev_consumer_prediction, pts_bev_embed, 1, 1)
 
         img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
         img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)

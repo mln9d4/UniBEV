@@ -237,10 +237,10 @@ class FlexibleUNetSiLU(BaseModule):
         # self.weight_1 = 1.0  # Weight for L1Loss
         # self.weight_2 = 0.1  # Weight for CosineEmbeddingLoss
 
-        self.input_pca = nn.Sequential(
-            nn.Conv2d(input_channels, channel_sizes[0], kernel_size=1),
-            nn.GroupNorm(32, channel_sizes[0])
-        )
+        # self.input_pca = nn.Sequential(
+        #     nn.Conv2d(input_channels, channel_sizes[0], kernel_size=1),
+        #     nn.GroupNorm(32, channel_sizes[0])
+        # )
         
         # Encoder blocks (contracting path)
         self.enc1 = nn.Sequential(
@@ -346,7 +346,7 @@ class FlexibleUNetSiLU(BaseModule):
         x = x.permute(0, 2, 1).contiguous().view(bs, c_in, self.bev_h, self.bev_w)
         
         # Encoder path - save skip connections
-        x = self.input_pca(x)
+        # x = self.input_pca(x)
         enc1_out = self.enc1(x)
         x = self.pool1(enc1_out)
         
