@@ -22,6 +22,7 @@ from .spatial_cross_attention_pts import MSDeformableAttention3DPts
 from mmcv.ops.multi_scale_deform_attn import MultiScaleDeformableAttention
 from .decoder import CustomMSDeformableAttention
 from mmcv.runner import force_fp32, auto_fp16
+from einops import rearrange
 
 class ModalityProjectionModule(BaseModule):
     def __init__(self,
@@ -595,7 +596,7 @@ class UniBEVTransformer(BaseModule):
 
         inter_references_out = inter_references
 
-        return fused_bev_embed, inter_states, init_reference_out, inter_references_out, ori_img_bev_embed, ori_pts_bev_embed
+        return fused_bev_embed, inter_states, init_reference_out, inter_references_out
     
 
 @TRANSFORMER.register_module()
@@ -611,7 +612,6 @@ class UniBEVTransformer_bevconsumer(BaseModule):
     """
 
     def __init__(self,
-                 checkpoint_path=None,
                  num_feature_levels=4,
                  num_cams=6,
                  two_stage_num_proposals=300,
@@ -632,6 +632,8 @@ class UniBEVTransformer_bevconsumer(BaseModule):
                  cna_constant_init = None,
                  bev_consumer = None,
                  bev_consumer_as_lidar_feature_map = False,
+                 use_diffusion_logic = False,
+                 checkpoint_path=None,
                  **kwargs):
         super(UniBEVTransformer_bevconsumer, self).__init__(**kwargs)
 
@@ -671,14 +673,18 @@ class UniBEVTransformer_bevconsumer(BaseModule):
         self.two_stage_num_proposals = two_stage_num_proposals
         self.vis_output = vis_output
         self.init_layers()
-    
+
+        
         self.checkpoint_path = checkpoint_path
         if self.checkpoint_path is not None:
             print("=====> Loading PTS model from checkpoint for BEV consumer...")
-            self.pts_model = self._build_pts_model(self.checkpoint_path)
+            self.bev_consumer = self._build_pts_model(self.checkpoint_path)
+        else:
+            self.bev_consumer = bev_consumer
 
-        self.bev_consumer = bev_consumer
+        self.epoch = 0
         self.bev_consumer_as_lidar_feature_map = bev_consumer_as_lidar_feature_map
+        self.use_diffusion_logic = use_diffusion_logic
 
     def _build_pts_model(self, checkpoint_path):
         """Build and load custom pts model from checkpoint.
@@ -1167,29 +1173,117 @@ class UniBEVTransformer_bevconsumer(BaseModule):
                 # ori_img_bev_embed=None,
             )
 
+        """
+        Self-implemented logic for training and validation.
+        We have two kind of checks, are we using a diffusion model? And are we using a loaded model?
+        If use diffusion model, use sampler by doing X.
+        If using standard unet, use forward method to obtain X.
+        
+        In standard Unet, we can pass in the features normally.
+        For diffusion, we first have to rearrange it to (batch, channels, height, width), 
+        and for output we have to rearrange it back to (batch, features, channels)
+        """
+
         loss_bev_consumer = None
-        if self.checkpoint_path is not None:
-        # use our trained model to create pts_bev_embed before fusion and use that.
-            # print("=====> Using PTS model to generate pts_bev_embed for BEV consumer...")
-            # print("=====> overwriting previous pts_bev_embed")
-            pts_bev_embed = self.pts_model(img_bev_embed)
+        if self.use_diffusion_logic:
+            # Using diffusion logic. Diffusion forward automatically calculates and returns the loss
+            if self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is True:
+                # Use diffusion model to generate pts_bev_embed from img_bev_embed and pass it down for fusion.
+                pts_bev_embed_bchw = rearrange(pts_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w)
+                img_bev_embed_bchw = rearrange(img_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w)
+                img_bev_embed_bchw_normalized = self.bev_consumer.rolling_stats_img.normalize(img_bev_embed_bchw)
+                pts_bev_embed_bchw_normalized = self.bev_consumer.rolling_stats_pts.normalize(pts_bev_embed_bchw)
+                loss_bev_consumer = {'bev_consumer_loss_l1loss': self.bev_consumer.forward(y0=pts_bev_embed_bchw_normalized, ycond=img_bev_embed_bchw_normalized)}
+                
+                output, _ = self.pts_model.ddpm_sampler(y_cond=img_bev_embed_bchw_normalized, sample_inter=120000)
+                output_denormalized = self.bev_consumer.rolling_stats_pts.denormalize(output)
+                pts_bev_embed = rearrange(output_denormalized, 'b c h w -> b (h w) c', h=bev_h, w=bev_w)
+            
+            elif self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is False:
+                if self.bev_consumer.training is True:
+                    # If training, use forward method to calculate loss
+                    pts_bev_embed_bchw = rearrange(pts_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w)
+                    img_bev_embed_bchw = rearrange(img_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w)
 
-        if self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is True:
-            # If True use the bev_consumer model to process img_bev_embed and use the
-            # output as pts_bev_embed for fusion and compute loss between input pts_bev_embed and output pts_bev_embed
-            bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
-            loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
-            if self.bev_consumer.training is True:
-                self.bev_consumer.save_loss_gradient_map(bev_consumer_prediction, pts_bev_embed, 1, 1)
-            pts_bev_embed = bev_consumer_prediction
+                    # Make sure that rolling stats is working for one epoch and other wise we don't nee dto update anymore
+                    if self.epoch > 1:
+                        self.bev_consumer.rolling_stats_img.fixed = True
+                        self.bev_consumer.rolling_stats_pts.fixed = True
+                    else:
+                        self.bev_consumer.rolling_stats_img.fixed = False
+                        self.bev_consumer.rolling_stats_pts.fixed = False
 
-        elif self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is False:
-            # If False use the bev_consumer model to process img_bev_embed and compute loss between input img_bev_embed and prediction
-            # this logic gate is used for evaluation and training of bev_consumer as a separate model
-            bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
-            loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
-            if self.bev_consumer.training is True:
-                self.bev_consumer.save_loss_gradient_map(bev_consumer_prediction, pts_bev_embed, 1, 1)
+                    self.bev_consumer.rolling_stats_img.update(img_bev_embed_bchw)
+                    self.bev_consumer.rolling_stats_pts.update(pts_bev_embed_bchw)
+
+                    img_bev_embed_bchw_normalized = self.bev_consumer.rolling_stats_img.normalize(img_bev_embed_bchw)
+                    pts_bev_embed_bchw_normalized = self.bev_consumer.rolling_stats_pts.normalize(pts_bev_embed_bchw)
+
+
+                    loss_bev_consumer = {'bev_consumer_loss_l1loss':self.bev_consumer.forward(y0=pts_bev_embed_bchw_normalized, y_cond=img_bev_embed_bchw_normalized)}
+                else:
+                    # Validation logic, using ddim_sampler with eta=1.0
+                    pts_bev_embed_bchw = rearrange(pts_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w)
+                    img_bev_embed_bchw = rearrange(img_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w)
+                    
+                    img_bev_embed_bchw_normalized = self.bev_consumer.rolling_stats_img.normalize(img_bev_embed_bchw)
+                    pts_bev_embed_bchw_normalized = self.bev_consumer.rolling_stats_pts.normalize(pts_bev_embed_bchw)
+
+                    loss_bev_consumer = {'bev_consumer_loss_l1loss':self.bev_consumer.forward(y0=pts_bev_embed_bchw_normalized, y_cond=img_bev_embed_bchw_normalized)}
+                    # This is for when we want to compare generation of the model.
+                    # bev_consumer_prediction, _ = self.bev_consumer.ddim_sampler(y_cond=pts_bev_embed_bchw_normalized, steps=20, eta=1.0)
+                    # bev_consumer_prediction_denormalized = self.bev_consumer.rolling_stats_pts.denormalize(bev_consumer_prediction)
+                    # self.bev_consumer.save_output_img(bev_consumer_prediction_denormalized, pts_bev_embed_bchw, epoch=self.epoch)
+                    # loss_bev_consumer = {'bev_consumer_loss_l1loss':self.bev_consumer.loss_fn(bev_consumer_prediction_denormalized, pts_bev_embed)}
+        else:
+            # Standard U-net logic
+            if self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is True:
+                bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
+                loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
+                pts_bev_embed = bev_consumer_prediction
+            elif self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is False:
+                bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
+                loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
+
+            
+
+
+        # loss_bev_consumer = None
+        # if self.checkpoint_path is not None:
+        # # use our trained model to create pts_bev_embed before fusion and use that.
+        #     # print("=====> Using PTS model to generate pts_bev_embed for BEV consumer...")
+        #     # print("=====> overwriting previous pts_bev_embed")
+        #     pts_bev_embed = self.pts_model(img_bev_embed)
+
+
+        # if self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is True:
+        #     # If True use the bev_consumer model to process img_bev_embed and use the
+        #     # output as pts_bev_embed for fusion and compute loss between input pts_bev_embed and output pts_bev_embed
+        #     bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
+        #     loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
+        #     if self.bev_consumer.training is True:
+        #         self.bev_consumer.save_loss_gradient_map(bev_consumer_prediction, pts_bev_embed, 1, 1)
+        #     pts_bev_embed = bev_consumer_prediction
+
+        # elif self.bev_consumer is not None and self.bev_consumer_as_lidar_feature_map is False:
+        #     # Using diffusion then need to run this code:
+
+        #     if self.bev_consumer.training is True:
+        #         loss_bev_consumer = {'bev_consumer_loss_l1loss':self.bev_consumer.forward(y0=rearrange(pts_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w), y_cond=rearrange(img_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w))}
+        #     else:
+        #         bev_consumer_prediction, _ = self.bev_consumer.ddim_sampler(y_cond=rearrange(pts_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w), steps=20)
+        #         self.bev_consumer.save_output_img(bev_consumer_prediction, rearrange(pts_bev_embed, 'b (h w) c -> b c h w', h=bev_h, w=bev_w), epoch=self.epoch)
+        #         loss_bev_consumer = {'bev_consumer_loss_l1loss':self.bev_consumer.loss_fn(rearrange(bev_consumer_prediction, 'b c h w -> b (h w) c', h=bev_h, w=bev_w), pts_bev_embed)}
+            
+        #     # If False use the bev_consumer model to process img_bev_embed and compute loss between input img_bev_embed and prediction
+        #     # this logic gate is used for evaluation and training of bev_consumer as a separate model
+            
+        #     # Normal unet behavior.
+        #     # bev_consumer_prediction = self.bev_consumer.forward(img_bev_embed)
+        #     # loss_bev_consumer = self.bev_consumer.loss(bev_consumer_prediction, pts_bev_embed)
+
+        #     # if self.bev_consumer.training is True:
+        #         # self.bev_consumer.save_loss_gradient_map(bev_consumer_prediction, pts_bev_embed, 1, 1)
 
         img_bev_embed, pts_bev_embed, vis_data_channel = self.channel_feature_norm(img_bev_embed, pts_bev_embed)
         img_bev_embed, pts_bev_embed, vis_data_spatial = self.spatial_feature_norm(img_bev_embed, pts_bev_embed)

@@ -14,7 +14,8 @@ attrs = []
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 sub_dir = 'mmdet3d_bevformer/'
-val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
+# val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
+val_ann_file = sub_dir + 'nuscenes_annotation_files_custom/one_sample_mini_nuscenes_infos_temporal_val.pkl'
 file_client_args = dict(backend='disk')
 bev_h_ = 200
 bev_w_ = 200
@@ -38,12 +39,12 @@ model = dict(
     use_camera=input_modality['use_camera'],
     pts_bbox_head=dict(
         transformer=dict(
-            vis_output=dict(
-                outdir= outdir,
-                keys=keys,
-                special_keys=special_keys,
-                attrs=attrs
-            )
+            # vis_output=dict(
+            #     outdir= outdir,
+            #     keys=keys,
+            #     special_keys=special_keys,
+            #     attrs=attrs
+            # )
         )
     )
 )

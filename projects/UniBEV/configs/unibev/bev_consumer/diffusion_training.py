@@ -4,11 +4,11 @@
 # Decoder Dimension: 256
 
 eval_interval = 10000 # SET super high to stop calculating val/nuscenes metrics during training (we don't want any of it anyway)
-val_interval = 1
-samples_per_gpu = 2
+val_interval = 1 # Off for diffusion training to save time, since we don't care about the actual detection performance during diffusion training.
+samples_per_gpu = 1
 workers_per_gpu = 4  # Reduced to free memory
-max_epochs = 50
-save_interval = 5
+max_epochs = 200
+save_interval = 10
 log_interval = 1
 fusion_method = 'linear'
 feature_norm = 'ChannelNormWeights'
@@ -23,6 +23,7 @@ sub_dir = 'mmdet3d_bevformer/'
 ###############
 # train_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_train.pkl'
 # val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
+
 train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/8_samples_mini_nuscenes_val_set_for_train.pkl'
 val_ann_file = sub_dir + 'nuscenes_annotation_files_custom/2_samples_mini_nuscenes_val_set_for_test.pkl'
 
@@ -32,14 +33,46 @@ val_ann_file = sub_dir + 'nuscenes_annotation_files_custom/2_samples_mini_nuscen
 
 # train_ann_file = sub_dir + 'nuscenes_annotation_files_custom/one_sample_mini_nuscenes_infos_temporal_train.pkl'
 # val_ann_file = sub_dir + 'mini_nuscenes_infos_temporal_val.pkl'
-feature_mapping_model = 'UNetAttention'
-# feature_mapping_model = 'UnetPadDeeper'
-# channel_sizes = [64, 128, 256, 512]
-channel_sizes = [256, 512, 1024, 2048]
+feature_mapping_model = 'DenoiseDiffusion'
 bev_consumer_as_lidar_feature_map_bool = False
-# loss_weights=dict(l1=1.0, msssim=0.0, std=0.0)
+use_diffusion_logic = True
 
-work_dir = f'./outputs/train/02-03-2026-01_{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}_10_sample'
+beta_schedule = dict(
+    train=dict(
+        schedule='linear',
+        n_timestep=2000,
+        linear_start=1e-4,
+        linear_end=2e-2,
+    ),
+    test=dict(
+        schedule='linear',
+        n_timestep=1000,
+        linear_start=1e-5,
+        linear_end=1e-1,
+    )
+)
+
+diffusion_config = dict(
+    beta_schedule=beta_schedule,
+    loss_fn=None,
+    k_noises=16,
+)
+
+model_config = dict(
+    in_channel=512,
+    out_channel=256,
+    inner_channel=256,
+    norm_groups=32,
+    channel_mults=(1, 1, 2, 4),
+    attn_res=(25,),
+    res_blocks=2,
+    dropout=0,
+    with_noise_level_emb=True,
+    image_size=200,
+    eps=1e-5
+)
+
+work_dir = f'./outputs/train/02-03-2026-02_{feature_mapping_model}_{train_ann_file.split("/")[-1][:-4]}_{val_ann_file.split("/")[-1][:-4]}_10_sample'
 
 load_from = '/home/mingdayang/UniBEV/projects/UniBEV/checkpoints/unibev_cnw_256_nus_MD.pth'
 
@@ -289,6 +322,7 @@ model = dict(
             fusion_method=fusion_method,
             drop_modality=modality_dropout_prob,
             feature_norm=feature_norm,
+            use_diffusion_logic=use_diffusion_logic,
             img_encoder=dict(
                 type='ImgEncoder',
                 num_layers=_encoder_layers_,
@@ -379,14 +413,10 @@ model = dict(
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm')))),
         bev_consumer_as_lidar_feature_map=bev_consumer_as_lidar_feature_map_bool,
-        use_diffusion_logic=False,
         bev_consumer=dict(
             type=feature_mapping_model,
-            input_channels=_dim_,
-            output_channels=_dim_,
-            bev_h=bev_h_,
-            bev_w=bev_w_,
-            channel_sizes=channel_sizes,
+            model_config=model_config,
+            diffusion_config=diffusion_config,
         ),
         bbox_coder=dict(
             type='NMSFreeCoder',
@@ -436,28 +466,34 @@ model = dict(
 
 
 evaluation = dict(interval=eval_interval, pipeline=test_pipeline)
+# optimizer = dict(
+#     type='AdamW',
+#     lr=1e-4,  
+#     weight_decay=0.0,
+#     betas=(0.9, 0.999)
+# )
+
 optimizer = dict(
-    type='AdamW',
-    lr=2e-4,  
-    weight_decay=0.1,
-    betas=(0.9, 0.999)
+    type='Adam',
+    lr=1e-5,
+    weight_decay=0.0,
 )
 
 optimizer_config = dict(
-    grad_clip=dict(max_norm=35, norm_type=2) 
+    grad_clip=dict(max_norm=1.0, norm_type=5) 
 )
-# lr_config = dict(policy='fixed') # CHANGED: Removed fixed policy
+lr_config = dict(policy='fixed') # CHANGED: Removed fixed policy
 
-lr_config = dict(
-    policy='OneCycle',
-    max_lr=4e-4,              # Slightly higher for full set (if batch size is larger)
-    total_steps=None,          
-    pct_start=0.1,             # Lowered from 0.3 to 0.1
-    anneal_strategy='cos',     
-    div_factor=10,             
-    final_div_factor=1e5,      # Lower final LR for smoother convergence
-    by_epoch=False             
-)
+# lr_config = dict(
+#     policy='OneCycle',
+#     max_lr=4e-4,              # Slightly higher for full set (if batch size is larger)
+#     total_steps=None,          
+#     pct_start=0.1,             # Lowered from 0.3 to 0.1
+#     anneal_strategy='cos',     
+#     div_factor=10,             
+#     final_div_factor=1e5,      # Lower final LR for smoother convergence
+#     by_epoch=False             
+# )
 
 # lr_config = dict(
 #     policy='OneCycle',
@@ -514,6 +550,7 @@ custom_hooks = [
     dict(type='CheckpointLateStageHook',
          start=max_epochs - 10,
          priority=60),
+    dict(type='SetEpochInfoHook'),
 ]
 workflow = [('train', 1), ('val', 1)]
 # workflow = [('train', 1)]  
@@ -540,7 +577,6 @@ log_config = dict(
                 save_code=True,
                 config=dict(
                     model=feature_mapping_model,
-                    channel_sizes=channel_sizes,
                     work_dir=work_dir,
                     total_epochs=max_epochs,
                     samples_per_gpu=samples_per_gpu,
@@ -554,6 +590,8 @@ log_config = dict(
                     validation_ann_file=val_ann_file,
                     workflow=workflow,
                     bev_consumer_as_lidar_feature_map=bev_consumer_as_lidar_feature_map_bool,
+                    model_config=model_config,
+                    beta_schedule=beta_schedule,
                 ),
             ))
     ])

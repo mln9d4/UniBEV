@@ -38,12 +38,12 @@ model = dict(
     use_camera=input_modality['use_camera'],
     pts_bbox_head=dict(
         transformer=dict(
-            vis_output=dict(
-                outdir= outdir,
-                keys=keys,
-                special_keys=special_keys,
-                attrs=attrs
-            )
+            # vis_output=dict(
+            #     outdir= outdir,
+            #     keys=keys,
+            #     special_keys=special_keys,
+            #     attrs=attrs
+            # )
         )
     )
 )

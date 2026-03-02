@@ -74,14 +74,12 @@ class UNetAttention(BaseModule):
     def __init__(self, input_channels=256, 
                  output_channels=256, 
                  bev_h=200, bev_w=200, 
-                 channel_sizes=[256, 512, 1024, 2048],
-                 loss_weights=dict(l1=1.0, msssim=0.0, std=0.0, gamma=1.0)):
+                 channel_sizes=[256, 512, 1024, 2048]):
         super().__init__()
         self.l1_loss = nn.L1Loss()
         self.bev_h = bev_h
         self.bev_w = bev_w
         self.channel_sizes = channel_sizes
-        self.loss_weights = loss_weights
 
         # Encoder
         self.enc1 = EncoderBlock(input_channels, channel_sizes[0])
@@ -138,7 +136,7 @@ class UNetAttention(BaseModule):
         # 2.STD weighted L1 Loss (on raw features)
         # weight_map = torch.std(t, dim=1, keepdim=True)
         # l1_val = torch.mean(self.l1_loss(p, t) * (1 + self.loss_weights['std'] * (torch.pow(weight_map, self.loss_weights['gamma']))))
-        losses['bev_consumer_loss_l1loss'] = torch.mean(self.l1_loss(p, t)) * self.loss_weights['l1']
+        losses['bev_consumer_loss_l1loss'] = torch.mean(self.l1_loss(p, t))
 
         # 3. MS-SSIM Loss (on Sigmoid-gated features)
         # We apply sigmoid to map unbounded features to [0, 1] for MS-SSIM stability

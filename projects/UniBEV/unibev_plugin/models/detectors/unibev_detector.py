@@ -103,6 +103,10 @@ class UniBEV(MVXTwoStageDetector):
                 if param.requires_grad == True:
                     print(f"Parameter {name} is trainable")
 
+    def set_epoch(self, epoch):
+        self.pts_bbox_head.transformer.epoch = epoch
+        print(f"Epoch set to {epoch} in UniBEV model.")
+
     def train(self, mode=True):
         """Convert the model into training mode while keeping UniBEV frozen parts in eval mode."""
         super(UniBEV, self).train(mode)
